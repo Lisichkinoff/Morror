@@ -1,0 +1,14 @@
+downloads/
+tools/
+dist/
+test-output/
+*.user
+.codex/
+.env
+.env.*
+!.env.example
+*.pem
+*.pfx
+*.p12
+adbkey
+adbkey.pub
