@@ -30,6 +30,9 @@ Get-ChildItem -LiteralPath $engine -File | Where-Object { $_.Extension -in @('.e
     }
 }
 Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md'),(Join-Path $projectRoot 'THIRD-PARTY-NOTICES.md') -Destination $output -Force
+$licenses = Join-Path $output 'licenses'
+New-Item -ItemType Directory -Force -Path $licenses | Out-Null
+Copy-Item -LiteralPath (Join-Path $projectRoot 'licenses\scrcpy-LICENSE.txt') -Destination $licenses -Force
 Copy-Item -LiteralPath $qrLibrary -Destination $output -Force
 Copy-Item -LiteralPath $icon -Destination $output -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'tools\qrcoder-1.8.1\LICENSE.txt') -Destination (Join-Path $output 'LICENSE-QRCoder.txt') -Force

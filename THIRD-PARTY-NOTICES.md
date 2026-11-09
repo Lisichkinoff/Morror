@@ -2,6 +2,15 @@
 
 Morror использует официальный бинарный пакет **scrcpy 5.0.1** от Genymobile и поставляемые с ним ADB, SDL, FFmpeg и libusb. Файлы движка не изменены. Лицензия scrcpy находится в `runtime/LICENSE.txt` (Apache License 2.0).
 
+Morror является отдельной Windows-оболочкой для scrcpy. Захват экрана, звука и управление Android выполняет scrcpy; интерфейс и дополнительные функции Morror разработаны в этом репозитории. Morror не является официальным продуктом Genymobile или авторов scrcpy.
+
+Уведомления об авторских правах scrcpy, сохранённые из официального `LICENSE.txt`:
+
+    Copyright (C) 2018 Genymobile
+    Copyright (C) 2018-2026 Romain Vimont
+
+Неизменённая копия этого файла для просмотра на GitHub: [licenses/scrcpy-LICENSE.txt](licenses/scrcpy-LICENSE.txt). Оригинальный проект: [Genymobile/scrcpy](https://github.com/Genymobile/scrcpy); основной автор: [Romain Vimont (rom1v)](https://github.com/rom1v).
+
 Исходники и инструкции сборки компонентов:
 
 - scrcpy: https://github.com/Genymobile/scrcpy/tree/v5.0.1

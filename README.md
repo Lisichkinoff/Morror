@@ -4,6 +4,19 @@ Windows-приложение для экрана, звука и управлен
 
 **Скачать:** [установщик Windows x64](https://github.com/Lisichkinoff/Morror/releases/latest/download/Morror-0.9.0-Setup-win64.exe) · [переносимый ZIP](https://github.com/Lisichkinoff/Morror/releases/latest/download/Morror-0.9.0-win64.zip) · [все релизы](https://github.com/Lisichkinoff/Morror/releases).
 
+## Основано на scrcpy
+
+Morror — самостоятельная Windows-оболочка для **[scrcpy 5.0.1](https://github.com/Genymobile/scrcpy/tree/v5.0.1)**. Захват экрана и звука, трансляцию и управление Android выполняет scrcpy. Morror добавляет русский интерфейс, настройку подключения и качества, трей, галерею и передачу файлов через ADB. Официальные бинарные файлы scrcpy используются без изменений.
+
+Авторы scrcpy — **Genymobile** и **[Romain Vimont (rom1v)](https://github.com/rom1v)**. Уведомления об авторских правах из поставляемой лицензии:
+
+    Copyright (C) 2018 Genymobile
+    Copyright (C) 2018-2026 Romain Vimont
+
+scrcpy распространяется под **Apache License 2.0**. [Полный текст лицензии scrcpy](licenses/scrcpy-LICENSE.txt) сохранён в репозитории и включён в сборки как `runtime/LICENSE.txt`. Условия остальных компонентов перечислены в [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+Morror — отдельный проект, не официальный продукт Genymobile или авторов scrcpy. Благодарим разработчиков scrcpy за движок трансляции.
+
 ## Интерфейс
 
 Главное окно:
