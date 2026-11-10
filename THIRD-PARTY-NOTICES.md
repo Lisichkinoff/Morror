@@ -26,6 +26,15 @@ SHA-256: `b12a2c4ee8be317422451fc7dcf8ee20a71b5ea7ef9ad73ddd825a25316227a5`.
 
 При дальнейшем распространении сохраняйте лицензии и уведомления компонентов и соблюдайте условия их распространения. Исходники оболочки Morror находятся в папке `src` этого проекта.
 
+## Нативный дополнительный монитор (0.11.0)
+
+Для ПК → Android отдельно поставляются неизменённые компоненты:
+
+- **Virtual Display Driver**, пакет `VirtualDisplayDriver-x86.Driver.Only.zip` выпуска 25.7.23 (x64), MIT. Copyright (c) 2024 Virtual Display. Лицензия: `licenses/VDD-LICENSE.txt`. Исходный проект: https://github.com/VirtualDrivers/Virtual-Display-Driver . Выпуск: https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/tag/25.7.23 . SHA-256 архива: `e24210692b442b39af763536330ce78b423f19342b7a7792c26de3944e418b3a`. Подпись каталога Windows проверяется перед установкой. INF, DLL и CAT не изменяются.
+- **FFmpeg 8.1.3-34-ga35157abb9**, автономный `ffmpeg.exe` из LGPL-сборки FFmpeg-Builds (ранее BtbN), LGPL v3. Copyright FFmpeg developers. Используется как отдельный процесс, без линковки с Morror. Лицензия: `licenses/FFmpeg-LICENSE.txt`, включён также текст GPL v3, на который она ссылается. Исходники FFmpeg соответствующего коммита: https://github.com/FFmpeg/FFmpeg/tree/a35157abb9 . Сборочные сценарии и зависимости: https://github.com/FFmpeg-Builds/FFmpeg-Builds . Неизменённый исходный бинарный архив: https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-11-09-12-42/ffmpeg-n8.1.3-34-ga35157abb9-win64-lgpl-8.1.zip . SHA-256: `7bdec3860d33145a7cd68146eb8e1414e8881cac76205401211fbdad38ef0ed3`.
+
+При публичном распространении бинарных файлов соблюдайте требования LGPL к доступности соответствующих исходников FFmpeg и статически включённых зависимостей. Конфигурация неизменённого бинарного файла доступна через `runtime/ffmpeg.exe -buildconf`. Android-клиент Morror написан в `android/` этого репозитория и использует системные MediaCodec/AudioTrack, без WebView. JDK и Android SDK применяются только при сборке и не поставляются пользователю.
+
 ## Генерация QR-кода
 
 В сборку входит **QRCoder 1.8.1**, лицензия MIT. Полный текст лицензии с уведомлениями об авторских правах находится в `LICENSE-QRCoder.txt` рядом с приложением.

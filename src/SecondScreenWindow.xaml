@@ -1,0 +1,32 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework" Title="Morror — дополнительный монитор" Width="820" Height="780" MinWidth="700" MinHeight="600" Background="#22232D" Foreground="#F4F3FA" FontFamily="Segoe UI" FontSize="15" WindowStartupLocation="CenterOwner" UseLayoutRounding="True">
+ <shell:WindowChrome.WindowChrome><shell:WindowChrome CaptionHeight="42" GlassFrameThickness="0" ResizeBorderThickness="6" UseAeroCaptionButtons="False"/></shell:WindowChrome.WindowChrome>
+ <Grid><Grid.RowDefinitions><RowDefinition Height="42"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+ <Grid Background="#23242E"><TextBlock Text="◈  morror / Дополнительный монитор" Foreground="#C6B5E8" VerticalAlignment="Center" Margin="24,0"/><Button x:Name="ScreenTitleClose" Style="{DynamicResource CaptionButton}" Content="&#xE8BB;" HorizontalAlignment="Right" Margin="0,0,8,0" AutomationProperties.Name="Закрыть второй экран"/></Grid>
+ <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18">
+  <TextBlock Text="Телефон как монитор Windows" FontSize="25" FontWeight="SemiBold"/><TextBlock Text="Расширение рабочего стола · нативный Android-клиент · USB или Wi-Fi" Foreground="#9B9BAE" Margin="0,7,0,20"/>
+  <Border Style="{DynamicResource Card}" Padding="18"><StackPanel>
+   <TextBlock Text="Подключение телефона" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12"/>
+   <ComboBox x:Name="MonitorTransport" SelectedIndex="0" AutomationProperties.Name="Подключение монитора"><ComboBoxItem Content="USB · кабель с передачей данных"/><ComboBoxItem Content="Wi-Fi · сопряжение по QR-коду"/></ComboBox>
+   <TextBlock x:Name="MonitorConnectionHint" Foreground="#9B9BAE" FontSize="13" Margin="0,9,0,12"/>
+   <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><ComboBox x:Name="MonitorDevices" DisplayMemberPath="Label" AutomationProperties.Name="Телефон для монитора"/><Button x:Name="MonitorRefresh" Grid.Column="1" Content="Обновить" Padding="12,8" Margin="8,0,0,0"/></Grid>
+   <Button x:Name="MonitorQr" Content="Подключить телефон по QR-коду" Margin="0,12,0,0"/>
+  </StackPanel></Border>
+  <Border Style="{DynamicResource Card}" Padding="18" Margin="0,14,0,0"><StackPanel>
+   <TextBlock Text="Компонент дополнительного экрана" FontSize="18" FontWeight="SemiBold"/>
+   <TextBlock x:Name="MonitorDriverStatus" Foreground="#9B9BAE" FontSize="13" Margin="0,9,0,12"/>
+   <Button x:Name="MonitorInstallDriver" Content="Установить компонент монитора · права администратора"/>
+   <TextBlock Text="Подписанный Virtual Display Driver включён в сборку. Основной физический экран не меняется. Android-клиент Morror будет установлен на выбранный телефон при запуске." Foreground="#9B9BAE" FontSize="12" Margin="0,9,0,0"/>
+  </StackPanel></Border>
+  <Border Style="{DynamicResource Card}" Padding="18" Margin="0,14,0,0"><StackPanel>
+   <TextBlock Text="Изображение и управление" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12"/>
+   <ComboBox x:Name="MonitorQuality" SelectedIndex="2" AutomationProperties.Name="Качество монитора"><ComboBoxItem Content="HD · до 1280 px · пропорции устройства"/><ComboBoxItem Content="Full HD · до 1920 px · пропорции устройства"/><ComboBoxItem Content="Авто · родное разрешение устройства · на весь экран"/></ComboBox>
+   <TextBlock Text="Разрешение Windows подбирается под экран телефона. Для нового размера Windows может один раз запросить права на обновление компонента монитора." Foreground="#9B9BAE" FontSize="12" Margin="0,8,0,0"/>
+   <ComboBox x:Name="MonitorFps" SelectedIndex="1" Margin="0,10,0,0" AutomationProperties.Name="Частота монитора"><ComboBoxItem Content="30 FPS"/><ComboBoxItem Content="60 FPS"/></ComboBox>
+   <CheckBox x:Name="MonitorTouch" Content="Сенсорное управление · без эмуляции мыши" IsChecked="True" Margin="0,14,0,0"/>
+   <CheckBox x:Name="MonitorAudio" Content="Звук ПК на телефоне" IsChecked="True" Margin="0,14,0,0"/>
+   <TextBlock Text="Windows получает касания дополнительного экрана. Как на обычном сенсорном мониторе, нажатие может менять активное окно. Звук — общий выход ПК." Foreground="#9B9BAE" FontSize="12" Margin="0,10,0,0"/>
+  </StackPanel></Border>
+ </StackPanel></ScrollViewer>
+ <Border Grid.Row="2" Background="#262732" BorderBrush="#373846" BorderThickness="0,1,0,0" Padding="24,16"><StackPanel><TextBlock x:Name="MonitorStatus" Text="Подключите телефон и включите дополнительный монитор." Foreground="#C6B5E8" FontSize="13" Margin="0,0,0,12"/><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Button x:Name="MonitorStart" Content="Включить дополнительный монитор" Background="#A99AFF" Foreground="#272139" FontWeight="SemiBold"/><Button x:Name="MonitorStop" Grid.Column="1" Content="Стоп" IsEnabled="False" Margin="8,0,0,0"/><Button x:Name="MonitorClose" Grid.Column="2" Content="Закрыть" Margin="8,0,0,0"/></Grid></StackPanel></Border>
+ </Grid>
+</Window>

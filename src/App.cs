@@ -38,6 +38,24 @@ namespace Morror
         [STAThread]
         public static void Main()
         {
+            string[] monitorArgs=Environment.GetCommandLineArgs().Skip(1).ToArray();
+            if(monitorArgs.Length>0 && monitorArgs[0]=="--configure-monitor-mode")
+            {
+                try
+                {
+                    int width,height,fps;
+                    if(monitorArgs.Length!=4||!int.TryParse(monitorArgs[1],out width)||!int.TryParse(monitorArgs[2],out height)||!int.TryParse(monitorArgs[3],out fps))throw new ArgumentException("Недопустимые параметры разрешения.");
+                    VirtualMonitorDriver.ConfigureMode(width,height,fps);
+                }
+                catch(Exception error){MessageBox.Show("Не удалось добавить разрешение монитора.\n"+error.Message,"Morror");Environment.ExitCode=1;}
+                return;
+            }
+            if (Environment.GetCommandLineArgs().Skip(1).SequenceEqual(new[] { "--install-monitor-driver" }))
+            {
+                try { VirtualMonitorDriver.InstallBundled(); }
+                catch (Exception error) { MessageBox.Show("Не удалось установить компонент монитора.\n" + error.Message, "Morror"); Environment.ExitCode = 1; }
+                return;
+            }
             using (var mutex = new Mutex(false, "Local\\Morror.Desktop"))
             {
                 if (!mutex.WaitOne(0))
@@ -69,11 +87,12 @@ namespace Morror
             window.Height = Math.Min(window.Height, area.Height);
             window.SizeChanged += (s, e) =>
             {
-                bool compact = window.ActualWidth < 900;
-                Get<StackPanel>("ProfilePanel").Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
-                Get<ColumnDefinition>("ProfileColumn").Width = new GridLength(compact ? 0 : 220);
-                Get<ColumnDefinition>("ProfileGap").Width = new GridLength(compact ? 0 : 18);
+                UpdateLayout();
             };
+            Get<Button>("OverviewNav").Click += (s, e) => ShowPage("Dashboard");
+            Get<Button>("SettingsNav").Click += (s, e) => ShowPage("Settings");
+            Get<Button>("OpenSettingsButton").Click += (s, e) => ShowPage("Settings");
+            Get<Button>("LogNav").Click += (s, e) => ShowPage("Log");
             using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("Morror.ico"))
             {
                 var decoder = new System.Windows.Media.Imaging.IconBitmapDecoder(stream, System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
@@ -125,6 +144,7 @@ namespace Morror
             Get<Button>("StartButton").Click += async (s, e) => await Start();
             Get<Button>("StopButton").Click += (s, e) => Stop();
             Get<Button>("TransferButton").Click += (s, e) => OpenTransfer();
+            Get<Button>("SecondScreenButton").Click += (s, e) => new SecondScreenDialog(window, Adb, Get<ComboBox>("Devices").SelectedItem as Device).Show();
             Get<CheckBox>("Control").Checked += (s, e) => UpdateButtons();
             Get<CheckBox>("Control").Unchecked += (s, e) => UpdateButtons();
             Get<CheckBox>("AlwaysOnTop").Checked += (s, e) => ApplyPin();
@@ -156,6 +176,36 @@ namespace Morror
                 timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
                 timer.Tick += async (ts, te) => await Refresh(); timer.Start();
             };
+        }
+
+        void UpdateLayout()
+        {
+            bool compact = window.ActualWidth < 1060;
+            Get<ColumnDefinition>("SidebarColumn").Width = new GridLength(compact ? 76 : 204);
+            foreach (string name in new[] { "BrandLabel", "NavSectionLabel", "OverviewLabel", "TransferLabel", "SecondScreenLabel", "SettingsLabel", "LogLabel", "SidebarNote" })
+                Get<FrameworkElement>(name).Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+            Get<FrameworkElement>("HeroArt").Width = compact ? 220 : 300;
+            // Keep device details on moderately sized windows; only the smallest layout needs one column.
+            bool singleColumn = window.ActualWidth < 900;
+            Get<StackPanel>("ProfilePanel").Visibility = singleColumn ? Visibility.Collapsed : Visibility.Visible;
+            Get<ColumnDefinition>("ProfileColumn").Width = new GridLength(singleColumn ? 0 : 238);
+            Get<ColumnDefinition>("ProfileGap").Width = new GridLength(singleColumn ? 0 : 18);
+        }
+
+        void ShowPage(string page)
+        {
+            foreach (string name in new[] { "Dashboard", "Settings", "Log" })
+                Get<StackPanel>(name + "Page").Visibility = name == page ? Visibility.Visible : Visibility.Collapsed;
+            Get<TextBlock>("PageTitle").Text = page == "Settings" ? "Настройки трансляции" : page == "Log" ? "Журнал подключения" : "Обзор подключения";
+            Get<TextBlock>("PageEyebrow").Text = page == "Settings" ? "КАЧЕСТВО, ЗВУК И УПРАВЛЕНИЕ" : page == "Log" ? "СОБЫТИЯ И ДИАГНОСТИКА" : "ВАШЕ ЛИЧНОЕ ПРОСТРАНСТВО";
+            var converter = new System.Windows.Media.BrushConverter();
+            foreach (string name in new[] { "OverviewNav", "SettingsNav", "LogNav" })
+            {
+                bool active = name == (page == "Dashboard" ? "OverviewNav" : page + "Nav");
+                Get<Button>(name).Background = (System.Windows.Media.Brush)converter.ConvertFromString(active ? "#8370D6" : "Transparent");
+                Get<Button>(name).Foreground = (System.Windows.Media.Brush)converter.ConvertFromString(active ? "#FFFFFF" : "#A5A3B8");
+            }
+            Get<ScrollViewer>("MainScroll").ScrollToTop();
         }
 
         void InitializeTray()
@@ -226,11 +276,11 @@ namespace Morror
             wifi = wireless;
             Get<StackPanel>("WifiPanel").Visibility = wifi ? Visibility.Visible : Visibility.Collapsed;
             var converter = new System.Windows.Media.BrushConverter();
-            var selected = (System.Windows.Media.Brush)converter.ConvertFromString("#BAF3CF");
-            var normal = (System.Windows.Media.Brush)converter.ConvertFromString("#233039");
-            var dark = (System.Windows.Media.Brush)converter.ConvertFromString("#163329");
-            var light = (System.Windows.Media.Brush)converter.ConvertFromString("#E5EEE9");
-            var border = (System.Windows.Media.Brush)converter.ConvertFromString("#34444B");
+            var selected = (System.Windows.Media.Brush)converter.ConvertFromString("#A99AFF");
+            var normal = (System.Windows.Media.Brush)converter.ConvertFromString("#343542");
+            var dark = (System.Windows.Media.Brush)converter.ConvertFromString("#272139");
+            var light = (System.Windows.Media.Brush)converter.ConvertFromString("#F4F3FA");
+            var border = (System.Windows.Media.Brush)converter.ConvertFromString("#454657");
             foreach (string name in new[] { "UsbButton", "WifiButton" })
             {
                 bool active = (name == "WifiButton") == wifi;
@@ -515,6 +565,7 @@ namespace Morror
             if (tray != null) tray.SetRunning(Running);
             bool canTransfer = !starting && !networkBusy && (Running || device != null && device.Ready);
             Get<Button>("TransferButton").IsEnabled = canTransfer;
+            Get<Button>("TransferButton").ToolTip = canTransfer ? "Фото и буфер обмена" : "Фото и буфер обмена · подключите телефон";
             if (tray != null) tray.SetTransferAvailable(canTransfer);
             Get<CheckBox>("ClipboardSync").IsEnabled = idle && !networkBusy && Get<CheckBox>("Control").IsChecked == true;
             Get<Button>("StartButton").IsEnabled = idle && !networkBusy && !refreshing && device != null && device.Ready;

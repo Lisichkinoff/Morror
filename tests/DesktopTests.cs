@@ -30,6 +30,9 @@ class DesktopTests
         window.UpdateLayout();
         var content = (FrameworkElement)window.Content;
         var bitmap = new RenderTargetBitmap((int)Math.Ceiling(content.ActualWidth), (int)Math.Ceiling(content.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+        var background = new DrawingVisual();
+        using (var drawing = background.RenderOpen()) drawing.DrawRectangle(window.Background, null, new Rect(0, 0, content.ActualWidth, content.ActualHeight));
+        bitmap.Render(background);
         bitmap.Render(content);
         var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
         using (var stream = File.Create(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, filename))) encoder.Save(stream);
@@ -62,11 +65,24 @@ class DesktopTests
                 Check(((TextBlock)window.FindName("DeviceResolution")).Text == "1440 × 3120" && ((TextBlock)window.FindName("DeviceModel")).Text == "Galaxy S24", "Selected phone supplies the live device card instead of a fixed brand profile");
                 Check(((ComboBox)window.FindName("Quality")).SelectedIndex == 1 && ((ComboBox)window.FindName("FrameRate")).SelectedIndex == 2, "Shipped balanced mode limits capture to HD and 60 FPS");
                 Snapshot(window, "main-balanced.png");
+                ((System.Windows.Controls.Button)window.FindName("SettingsNav")).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                Check(((StackPanel)window.FindName("SettingsPage")).IsVisible && !((StackPanel)window.FindName("DashboardPage")).IsVisible && ((ComboBox)window.FindName("Quality")).IsVisible, "Settings navigation exposes the existing quality controls and hides the dashboard");
+                Snapshot(window, "main-settings.png");
+                ((System.Windows.Controls.Button)window.FindName("LogNav")).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                Check(((System.Windows.Controls.TextBox)window.FindName("Log")).IsVisible && ((TextBlock)window.FindName("PageTitle")).Text == "Журнал подключения", "Log navigation displays the actual connection log");
+                ((System.Windows.Controls.Button)window.FindName("OverviewNav")).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                Check(((StackPanel)window.FindName("DashboardPage")).IsVisible && !((StackPanel)window.FindName("SettingsPage")).IsVisible, "Home navigation restores the connection dashboard");
                 var presets = (ComboBox)window.FindName("StreamPreset"); presets.SelectedIndex = 1;
                 Check(((ComboBox)window.FindName("Quality")).SelectedIndex == 0 && ((ComboBox)window.FindName("FrameRate")).SelectedIndex == 1, "Low heat preset actually selects 720 px and 30 FPS");
                 presets.SelectedIndex = 0;
                 ((System.Windows.Controls.Button)window.FindName("WifiButton")).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
                 await Until(() => !Field<bool>(controller, "refreshing"));
+                Snapshot(window, "main-wifi.png");
+                ((Expander)window.FindName("ManualWifi")).IsExpanded = true;
+                window.UpdateLayout();
+                Check(((System.Windows.Controls.TextBox)window.FindName("PairAddress")).IsVisible, "Manual Wi-Fi expander reveals pairing fields in the redesigned template");
+                Snapshot(window, "main-wifi-manual.png");
+                ((Expander)window.FindName("ManualWifi")).IsExpanded = false;
                 Check(((ComboBox)window.FindName("Devices")).SelectedItem is Device, "Wi-Fi setup retains the authorized USB phone for migration");
                 ((System.Windows.Controls.Button)window.FindName("UsbWifiButton")).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
                 await Until(() => !Field<bool>(controller, "networkBusy") && !Field<bool>(controller, "refreshing"));
@@ -85,7 +101,24 @@ class DesktopTests
                 Snapshot(window, "main-large-text.png");
                 window.Width = 800; window.Height = 800;
                 Snapshot(window, "main-compact-text.png");
+                Check(((ColumnDefinition)window.FindName("SidebarColumn")).Width.Value == 76 && ((FrameworkElement)window.FindName("OverviewLabel")).Visibility == Visibility.Collapsed && ((System.Windows.Controls.Button)window.FindName("StartButton")).IsVisible, "Compact layout collapses navigation labels while keeping stream controls accessible");
+                window.Width = 760; window.Height = 650;
+                Snapshot(window, "main-minimum.png");
                 window.Width = 1380; window.Height = 960;
+                var secondScreenDialog = new SecondScreenDialog(window, Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"FakeRuntime","adb.exe"), null);
+                var secondScreenWindow = Field<Window>(secondScreenDialog, "window");
+                bool secondScreenShown = false;
+                secondScreenWindow.Loaded += async (ss, se) =>
+                {
+                    await Until(() => !Field<bool>(secondScreenDialog,"busy"));
+                    secondScreenWindow.Width = Math.Min(920, SystemParameters.WorkArea.Width);
+                    secondScreenWindow.Height = Math.Min(1040, SystemParameters.WorkArea.Height);
+                    secondScreenShown = ((ComboBox)secondScreenWindow.FindName("MonitorTransport")).IsVisible;
+                    Snapshot(secondScreenWindow, "second-screen-design.png");
+                    ((System.Windows.Controls.Button)secondScreenWindow.FindName("ScreenTitleClose")).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                };
+                secondScreenDialog.Show();
+                Check(secondScreenShown && !secondScreenWindow.IsVisible, "Second-screen dialog uses the shared theme and its custom title close button closes the idle session");
                 var clipboardPng = new System.Windows.DataObject();
                 var pixels = new byte[160 * 100 * 4];
                 for (int p = 0; p < pixels.Length; p += 4) { pixels[p] = (byte)(70 + p / 4 % 160); pixels[p + 1] = (byte)(100 + p / 640); pixels[p + 2] = 60; pixels[p + 3] = 255; }
@@ -190,4 +223,3 @@ class DesktopTests
         return result;
     }
 }
-

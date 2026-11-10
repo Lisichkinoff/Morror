@@ -1,135 +1,164 @@
-﻿# Morror 0.9.0
+# Morror
 
-Windows-приложение для экрана, звука и управления Android через USB или Wi-Fi. Интерфейс WPF на русском, движок — scrcpy 5.0.1. Нужны Windows 10 (1809+) / Windows 11 x64 и .NET Framework 4.8.
+**Mirror Android on Windows, or turn an Android device into a native Windows second monitor — over USB or Wi-Fi.**
 
-**Скачать:** [установщик Windows x64](https://github.com/Lisichkinoff/Morror/releases/latest/download/Morror-0.9.0-Setup-win64.exe) · [переносимый ZIP](https://github.com/Lisichkinoff/Morror/releases/latest/download/Morror-0.9.0-win64.zip) · [все релизы](https://github.com/Lisichkinoff/Morror/releases).
+Morror combines a Russian-language WPF desktop interface, the official [scrcpy 5.0.1](https://github.com/Genymobile/scrcpy/tree/v5.0.1) runtime for Android-to-PC mirroring, and a native Android receiver for PC-to-Android display extension.
 
-## Основано на scrcpy
+**Current source version: 0.11.1.** The latest published binary release is still **0.9.0**. Native second-monitor features described below are available in the current source and local 0.11.1 builds.
 
-Morror — самостоятельная Windows-оболочка для **[scrcpy 5.0.1](https://github.com/Genymobile/scrcpy/tree/v5.0.1)**. Захват экрана и звука, трансляцию и управление Android выполняет scrcpy. Morror добавляет русский интерфейс, настройку подключения и качества, трей, галерею и передачу файлов через ADB. Официальные бинарные файлы scrcpy используются без изменений.
+[Published releases](https://github.com/Lisichkinoff/Morror/releases) · [Download 0.9.0 installer](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.0/Morror-0.9.0-Setup-win64.exe) · [Download 0.9.0 portable ZIP](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.0/Morror-0.9.0-win64.zip) · [Second-monitor guide](docs/second-screen.md)
 
-Авторы scrcpy — **Genymobile** и **[Romain Vimont (rom1v)](https://github.com/rom1v)**. Уведомления об авторских правах из поставляемой лицензии:
+## Features
 
-    Copyright (C) 2018 Genymobile
-    Copyright (C) 2018-2026 Romain Vimont
+| Android → Windows | Windows → Android |
+| --- | --- |
+| Screen, audio, mouse and keyboard control through scrcpy | A real extended Windows desktop through a signed virtual display driver |
+| USB, Wi-Fi QR pairing and USB-to-Wi-Fi migration | USB or the same Android wireless-debugging QR pairing |
+| Quality presets, native resolution and configurable FPS limits | Native Android MediaCodec receiver; no browser or WebView |
+| Physical UHID keyboard with multilingual layouts | Automatic device-native resolution and aspect-preserving HD/FHD modes |
+| Gallery, thumbnails, file transfer and clipboard actions | Multitouch input with a filter for touch-generated mouse movement |
+| Tray controls, live pinning and connection logs | System audio through WASAPI loopback and Android AudioTrack |
 
-scrcpy распространяется под **Apache License 2.0**. [Полный текст лицензии scrcpy](licenses/scrcpy-LICENSE.txt) сохранён в репозитории и включён в сборки как `runtime/LICENSE.txt`. Условия остальных компонентов перечислены в [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+The desktop UI currently uses Russian labels. Mirroring, file transfer and second-monitor controls are available from the sidebar.
 
-Morror — отдельный проект, не официальный продукт Genymobile или авторов scrcpy. Благодарим разработчиков scrcpy за движок трансляции.
+## Screenshots
 
-## Интерфейс
+Fresh screenshots of the current 0.11.1 interface. Desktop screenshots use a simulated device and generated images, without personal files or clipboard contents.
 
-Главное окно:
+### Connection dashboard
 
-![Главное окно Morror](docs/images/main.png)
+![Morror 0.11.1 connection dashboard with a demonstration Android device](docs/images/overview.png)
 
-Галерея и буфер обмена (демонстрационные изображения):
+### Native second-monitor setup
 
-![Фото и буфер обмена Morror](docs/images/gallery.png)
+Device-native resolution is selected by default. The included display component is installed once, and Morror installs its Android receiver on the selected authorized device.
 
-## Запуск и установка
+![Native second-monitor settings with automatic device resolution](docs/images/second-monitor.png)
 
-- Установщик: dist/Morror-0.9.0-Setup-win64.exe. Установка для текущего пользователя без прав администратора. Можно выбрать папку и ярлык на рабочем столе.
-- Переносимая версия: dist/Morror-0.9.0/Morror.exe или архив dist/Morror-0.9.0-win64.zip. Переносите всю папку вместе с runtime, QRCoder.dll и лицензиями.
-- Перед запуском новой версии завершите старую через меню трея «Выйти из Morror».
+### Mirroring settings
 
-Установщик и удаление сохраняют посторонние файлы и общие ключи ADB. Значок приложения находится в трее рядом с часами; двойной щелчок возвращает окно.
+![Mirroring quality, keyboard, audio and tray settings](docs/images/settings.png)
 
-## Что изменилось
+### Files and clipboard
 
-Главный экран стал компактнее: подключение, режим трансляции и запуск. Подробные параметры находятся в «Настройки», инструкции — в раскрывающихся блоках и подсказках. Кнопки запуска и остановки всегда доступны внизу.
+![Android gallery and file-transfer controls with synthetic demonstration images](docs/images/files-and-clipboard.png)
 
-Добавлены автоподключение после ручного сопряжения, проверка готовности ADB, переход с USB на Wi-Fi, адреса IPv6 в квадратных скобках, галерея с миниатюрами и физическая клавиатура UHID.
+### Android receiver
 
-## Подключение
+A real Pixel 8 displaying a **synthetic test pattern at 2400 × 1080**, with the image reaching both screen edges. This demonstrates the native receiver and aspect ratio, not a Windows desktop screenshot or a performance benchmark.
+
+![Native Android receiver filling the Pixel 8 display at 2400 by 1080](docs/images/native-android.png)
+
+## Requirements and installation
+
+- **Windows:** Windows 10 version 1809 or later / Windows 11, x64, .NET Framework 4.8.
+- **Android mirroring:** an authorized USB or wireless ADB connection. Android audio forwarding requires Android 11 or later; unlock Android 11 before starting.
+- **Second monitor:** Android 8.0 or later, Android H.264 decoding, Windows Media Foundation, and the included signed Virtual Display Driver.
+- **QR pairing:** Android 11 or later with Wireless debugging enabled.
+
+The Windows installer runs per user. Installing the virtual display component, or registering a previously unsupported monitor resolution, requires Windows administrator approval. Root access on Android is not required.
+
+For a local 0.11.1 build, run `dist/Morror-0.11.1/Morror.exe`, install `dist/Morror-0.11.1-Setup-win64.exe`, or extract the entire `dist/Morror-0.11.1-win64.zip`. Keep the runtime, QRCoder library and license files together. Exit an older running instance from its tray menu before updating.
+
+## Mirror Android on your PC
 
 ### USB
 
-Включите «Для разработчиков → Отладка по USB» на телефоне. Подключите кабель с передачей данных, разблокируйте телефон и подтвердите доступ для ПК. Выберите устройство и начните трансляцию.
+Enable **Developer options → USB debugging**, connect a data-capable cable, unlock the phone and authorize the PC. Select the device and start mirroring.
 
-### Wi-Fi на Android 11+
+### Wi-Fi with a QR code
 
-Телефон и ПК должны быть в одной сети; ПК может подключаться к роутеру кабелем.
+1. Put the PC and Android device on the same local network. The PC may use Ethernet.
+2. In Morror, select Wi-Fi and **«Подключить по QR-коду»** (Connect by QR code).
+3. On Android, open **Developer options → Wireless debugging → Pair device with QR code**.
+4. Scan using Android's wireless-debugging scanner, finish pairing and start mirroring.
 
-1. В Morror выберите Wi-Fi → «Подключить по QR-коду».
-2. На телефоне: «Для разработчиков → Беспроводная отладка → Подключить устройство с помощью QR-кода».
-3. Используйте сканер беспроводной отладки. После подключения нажмите «Готово» и начните трансляцию.
+For manual pairing, use the IP address, pairing port and six-digit code from Android's pairing dialog. The connection port shown on the main Wireless debugging screen is a different port. If mDNS discovery is unavailable, enter that connection address after pairing; the pairing itself remains saved. IPv4 and bracketed IPv6 addresses are supported.
 
-Если QR не срабатывает, откройте «Код или IP-адрес». Возьмите IP:порт и 6 цифр из окна сопряжения на телефоне. Morror выполняет сопряжение и до 25 секунд ищет порт подключения именно этого телефона. Если mDNS недоступен, сопряжение сохраняется: введите IP:порт с главной страницы беспроводной отладки и нажмите «Подключить по адресу». Это другой порт, код повторно не нужен.
+For older devices, connect and authorize USB first, then use **USB → Wi-Fi** in Morror. This enables legacy ADB TCP/IP on port 5555 until the phone restarts. Use a trusted network. Morror does not modify your router or firewall, and does not restart the shared ADB server.
 
-Поддерживаются IPv4 и IPv6 вида [2001:db8::20]:37123. При смене сети или перезапуске беспроводной отладки порт может измениться. Включённой USB-отладки недостаточно для TLS-сопряжения.
+### Quality, keyboard and tray controls
 
-### Переход с USB на Wi-Fi
-
-Подходит и для телефонов без меню беспроводного сопряжения.
-
-1. Подключите и авторизуйте телефон по USB. Подключите его к Wi-Fi той же сети, что и ПК.
-2. Выберите этот USB-телефон в списке и нажмите Wi-Fi → «Перейти с USB на Wi-Fi».
-3. Дождитесь сообщения «USB можно отключить». Morror выберет проверенное беспроводное подключение.
-
-Команда включает обычный ADB TCP/IP на порту 5555 до перезагрузки телефона. Используйте доверенную сеть. Для возврата только к USB можно перезагрузить телефон. Некоторые производители запрещают этот режим.
-
-Список показывает все найденные устройства, отдавая приоритет выбранному типу подключения. USB-телефон остаётся доступен для перехода на Wi-Fi. Гостевые сети с изоляцией, VPN и запрет mDNS могут мешать подключению; Morror не меняет брандмауэр или настройки роутера. Перезапуск общего сервера ADB не выполняется.
-
-## Качество и нагрев
-
-| Режим | Длинная сторона | FPS | Битрейт |
+| Preset | Long edge | Capture limit | Video bitrate |
 | --- | --- | --- | --- |
-| Баланс, по умолчанию | 1280 px | до 60 | 8 Мбит/с |
-| Меньше нагрев | 720 px | до 30 | 4 Мбит/с |
-| Чётко | 1920 px | до 60 | 16 Мбит/с |
+| Balanced, default | 1280 px | 60 FPS | 8 Mbps |
+| Lower load | 720 px | 30 FPS | 4 Mbps |
+| Sharp | 1920 px | 60 FPS | 16 Mbps |
 
-В «Настройки» доступны 2K, QHD, 4K, исходное разрешение и лимиты до 240 FPS или без ограничения. Ручное изменение разрешения/FPS переключает режим на «Свои настройки». Кнопка «Исходное качество» снимает ограничения разрешения/FPS; она увеличивает нагрузку по сравнению с балансом.
+Settings also expose 2K, QHD, 4K, original resolution, higher FPS limits and an uncapped mode. Actual frame rate depends on the device, encoder and connection. Higher limits increase load; a configured limit is not a measured performance claim. Settings apply on the next mirroring session.
 
-Для снижения нагрузки выберите «Меньше нагрев». Дополнительно можно включить «Гасить экран телефона при старте»: трансляция продолжается, экран включается обратно Alt+Shift+O в окне телефона. Это требует включённого управления. В скрытом окне настроек во время трансляции не опрашивается список ADB каждые 5 секунд.
+The default `--keyboard=uhid` mode supports physical-keyboard layouts, including Russian and English. During mirroring, press **Alt+K** to configure Android's physical keyboard. Language switching is usually **Ctrl+Space**; Android layouts are independent of Windows layouts. A compatible SDK keyboard mode is available for devices that cannot use UHID.
 
-Нагрев зависит от телефона, приложений, сети, зарядки и кодировщика. Снижение температуры на физическом устройстве в 0.9.0 не измерялось. Частота панели и FPS захвата различаются; фактический FPS доступен в журнале. Изменения качества применяются при следующем запуске трансляции.
+Morror can hide to the tray after the mirror opens. Double-click its tray icon to restore settings; stopping or losing the stream restores them automatically. Pinning the mirror can be changed during playback. If phone-screen power saving is enabled, **Alt+Shift+O** turns the Android screen back on.
 
-## Клавиатура и языки
+## Use Android as a second monitor
 
-По умолчанию используется --keyboard=uhid: Android получает физическую клавиатуру, поддерживающую русский и другие языки по USB и Wi-Fi.
+1. Open **«Второй экран»** (Second screen) in the sidebar.
+2. Install the included display component once and approve the Windows prompt.
+3. Connect by USB or QR-paired Wi-Fi and select the authorized device.
+4. Keep **Auto · device-native resolution** selected and enable the monitor.
+5. Morror installs and starts its native Android receiver. Move Windows applications onto the new extended display.
 
-Один раз во время трансляции нажмите Alt+K в окне телефона или откройте Morror → «Настройки → Языки клавиатуры на телефоне». Выберите клавиатуру scrcpy и добавьте русскую и английскую раскладки. Для переключения обычно используется Ctrl+Пробел; точное сочетание зависит от Android и установленного метода ввода.
+No desktop browser, screen-sharing picker or Android WebView is used. The same bounded, authenticated TCP protocol runs through a session-owned ADB reverse tunnel for both USB and Wi-Fi.
 
-Раскладки Android настраиваются отдельно от Windows. Win+Пробел переключает раскладку Windows и не означает переключение языка телефона.
+### Full-screen resolution
 
-Для старых устройств без UHID остановите трансляцию и выберите «Совместимость · SDK». В этом режиме ввод кириллицы ограничен; русский текст можно вставлять через общий буфер. Основание: [документация scrcpy о клавиатуре](https://github.com/Genymobile/scrcpy/blob/v5.0.1/doc/keyboard.md).
+Auto mode uses the effective Android panel dimensions in landscape orientation. For a Pixel 8, Windows and the video stream use **2400 × 1080**, rather than forcing a 16:9 desktop into a wider phone screen.
 
-## Фото и буфер обмена
+| Mode on a Pixel 8 | Windows monitor and video size |
+| --- | --- |
+| Auto / native | 2400 × 1080 |
+| Full HD budget | 1920 × 864 |
+| HD budget | 1280 × 576 |
 
-Откройте «Фото и буфер обмена» под списком устройств или через меню трея. Трансляцию запускать необязательно.
+A new size is added to the driver's configuration with a backup, preserving existing modes, GPU options and monitor counts. Windows may request administrator approval the first time; the virtual driver is refreshed without restarting physical graphics adapters.
 
-- Файлы телефона показаны плитками по 12 на страницу. Папки открываются двойным щелчком, стрелки перелистывают страницы. Выбор картинки показывает превью справа.
-- Превью загружаются последовательно только для текущей страницы: до 8 МиБ на файл и 24 МиБ на страницу, с тайм-аутом 8 секунд на файл. На ПК декодируются миниатюры до 320 px, временные копии удаляются. Переход в другую папку, перелистывание, передача файла и закрытие окна отменяют текущую загрузку.
-- Для превью требуется кратковременная загрузка оригинала. HEIC, AVIF и другие форматы без Windows-кодека, а также большие файлы доступны без миниатюр. Ошибка превью не запрещает копирование оригинала.
-- «Копировать в буфер ПК» копирует оригинал: для поддерживаемых изображений в буфере доступны Bitmap, PNG и файл. Нажмите Ctrl+V в нужном приложении Windows.
-- «Сохранить…» сохраняет оригинал в выбранную папку. Для буфера копии остаются в «Загрузки/Morror», чтобы вставка работала после закрытия Morror.
-- «Снимок экрана в буфер» копирует видимый экран телефона, а не оригинал фотографии.
-- «Выбрать файл…», «Изображение из буфера» и перетаскивание отправляют файл на телефон. Фото сохраняются в Pictures/Morror, остальные файлы — в Download/Morror. Размер проверяется, запрашивается индексация в медиатеке.
-- После подтверждения индексации доступно «Открыть на телефоне». Отправленный файл можно прикрепить в приложении Android; отправка сама по себе не вставляет изображение в буфер Android.
+### Touch and current limitations
 
-Общий Ctrl+C / Ctrl+V в трансляции передаёт текст. Картинки и URI из буфера Android автоматически не синхронизируются. Доступна общая память телефона, без приватных файлов приложений и облачных фото, не загруженных на устройство. Оригиналы не удаляются. Системный буфер Windows читается для отправки только после нажатия кнопки.
+Touch events are delivered to the virtual monitor through Windows touch APIs. Morror filters mouse-movement messages promoted from its touch input, while allowing ordinary physical mouse movement. Touch can still activate another Windows window and change keyboard focus, as on a normal touchscreen. This is not a separate Windows user session.
 
-## Трансляция и трей
+The current receiver uses landscape orientation. Pen pressure, tilt, palm rejection and automatic monitor rotation are not implemented. Protected video, elevated windows and applications with specialized input can have limitations. System audio is the PC's shared output mix, not per-window audio. Encoder selection prefers NVENC or hardware Media Foundation and falls back to software Media Foundation; actual latency and FPS depend on the PC.
 
-По умолчанию после открытия окна телефона Morror скрывается в трей. Двойной щелчок по значку возвращает настройки. В меню доступны обмен файлами, закрепление окна, остановка и выход. Закрытие настроек во время трансляции сохраняет её; остановка или обрыв возвращает окно настроек. Переключатель «Скрывать Morror в трей при старте» отключает автоматическое скрытие.
+See the [full second-monitor guide](docs/second-screen.md) for lifecycle details and the hardware-validation status.
 
-Звук поддерживается на Android 11+, на Android 11 телефон при старте должен быть разблокирован. Дополнительные разрешения управления могут зависеть от производителя.
+## Files and clipboard
 
-## Сборка и проверка
+The gallery lists shared Android storage with paginated thumbnails. It can download originals, copy supported images or files into the Windows clipboard, upload selected files or clipboard images, and open a transferred file after Android media indexing succeeds. Pictures go to `Pictures/Morror`; other files go to `Download/Morror`. Source files are not deleted.
 
-В PowerShell:
+Text clipboard synchronization is available during mirroring. Android image/URI clipboard data is not synchronized automatically, and uploading a picture does not paste it into an Android message. Private application storage and cloud-only files are outside the gallery's scope. The system clipboard is read for upload only after a user action.
 
-    ./scripts/get-scrcpy.ps1
-    ./scripts/get-qr-dependencies.ps1 -IncludeTests
-    ./build.ps1 -Test
-    ./scripts/get-installer-tools.ps1
-    ./scripts/build-installer.ps1 -SkipBuild -Test
+## Build from source
 
-Сборка использует C#-компилятор .NET Framework, без отдельного SDK. Загрузки закреплены версиями и SHA-256. Результат находится в dist/Morror-0.9.0; build.ps1 принимает -OutputDirectory.
+Run in PowerShell from the repository root:
 
-Проверки покрывают команды и параметры трансляции, адреса, mDNS, сопряжение, переход с USB на Wi-Fi, состояния доступа, буфер, передачу файлов, лимиты превью, галерею, выбор режимов, окна и трей. UI проверяется с тестовым ADB/scrcpy и синтетическими изображениями; системный буфер пользователя не меняется. QR декодируется независимым ZXing. Скриншоты окон сохраняются в test-output.
+```powershell
+./scripts/get-scrcpy.ps1
+./scripts/get-qr-dependencies.ps1 -IncludeTests
+./scripts/get-native-monitor-dependencies.ps1 -BuildTools
+./scripts/build-android-monitor.ps1
+./build.ps1 -Test
+./scripts/test-second-screen.ps1
+./scripts/get-installer-tools.ps1
+./scripts/build-installer.ps1 -SkipBuild -Test
+```
 
-Установщик проверяется в отдельной тестовой папке без рабочих ярлыков и записи удаления: установка с ярлыком и без него, контроль файлов, повторная установка и удаление с сохранением постороннего файла.
+The desktop build uses the .NET Framework C# compiler; a separate .NET SDK is not required. Android builds use a pinned JDK and Android SDK without Gradle. Dependency archives are pinned by version and SHA-256. Toolchains and downloaded archives stay in ignored directories. The APK signing key is created locally under `tools/native-monitor`; preserve it for compatible APK updates and do not commit it.
 
-Для 0.9.0 физическое устройство во время разработки не подключено: реальные Wi-Fi-сопряжение, переключение языков и температура требуют проверки на телефоне. В 0.8.1 ранее проверялся файловый обмен тестовым PNG с Pixel 8 по Wi-Fi. tests/DeviceTransferSmoke.cs позволяет отдельно проверить передачу собственного тестового файла на авторизованное устройство.
+Outputs go to `dist/Morror-0.11.1`. `build.ps1` accepts `-OutputDirectory`. The Android APK, native encoder, signed driver package and licenses are included in the Windows payload.
+
+## Validation
+
+Automated checks cover ADB arguments and timeouts, pairing and device selection, connection migration, gallery/file-transfer limits, clipboard payloads, tray/window behavior, native H.264 packet boundaries, authenticated monitor sessions, resolution calculations and configuration backups. UI screenshots use test fixtures. Installer tests use isolated destinations and preserve unrelated files.
+
+Hardware checks on a Pixel 8 over Wi-Fi verified the native Android decoder, 2400 × 1080 full-screen output and returning touch events. The installed Windows virtual monitor was switched to 2400 × 1080 at 60 Hz while preserving physical monitor dimensions, positions and primary selection. These checks do not establish universal device compatibility, sustained FPS, latency or USB-cable performance; see the guide for remaining validation.
+
+## Credits and licenses
+
+Android-to-PC capture and control are provided by **scrcpy**, developed by **Genymobile** and **[Romain Vimont (rom1v)](https://github.com/rom1v)**. Morror is an independent project, not an official Genymobile or scrcpy product. The official scrcpy binaries are distributed without modification.
+
+```text
+Copyright (C) 2018 Genymobile
+Copyright (C) 2018-2026 Romain Vimont
+```
+
+scrcpy uses the Apache License 2.0. Its [license](licenses/scrcpy-LICENSE.txt) is preserved in this repository and in the runtime. Native second-monitor support uses the MIT-licensed Virtual Display Driver and a separate LGPL FFmpeg executable. QRCoder is MIT-licensed. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and the bundled licenses for attribution, exact versions, hashes and source links.

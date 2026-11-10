@@ -1,11 +1,11 @@
-﻿param([switch]$Test, [switch]$SkipBuild)
+param([switch]$Test, [switch]$SkipBuild)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot
 $compiler = Join-Path $projectRoot 'tools\innosetup-6.7.3\tools\ISCC.exe'
 if (!(Test-Path -LiteralPath $compiler)) { throw 'Сначала выполните scripts\get-installer-tools.ps1.' }
 if (!$SkipBuild) { & (Join-Path $projectRoot 'build.ps1') }
-$payload = Join-Path $projectRoot 'dist\Morror-0.9.0'
-if (!(Test-Path -LiteralPath (Join-Path $payload 'Morror.exe'))) { throw 'Не найдена сборка Morror 0.9.0.' }
+$payload = Join-Path $projectRoot 'dist\Morror-0.11.1'
+if (!(Test-Path -LiteralPath (Join-Path $payload 'Morror.exe'))) { throw 'Не найдена сборка Morror 0.11.1.' }
 $recipe = Join-Path $projectRoot 'installer\Morror.iss'
 $temporary = Join-Path $projectRoot 'test-output'
 New-Item -ItemType Directory -Force -Path $temporary | Out-Null
@@ -22,8 +22,5 @@ Set-Content -LiteralPath $manifest -Value $fileEntries -Encoding utf8
 & $compiler /Qp ("/DPayloadDir=" + $payload) ("/DFileManifest=" + $manifest) $recipe
 if ($LASTEXITCODE -ne 0) { throw 'Не удалось собрать установщик.' }
 if ($Test) { & (Join-Path $projectRoot 'tests\InstallerTests.ps1') -Compiler $compiler -Payload $payload -Recipe $recipe -Manifest $manifest }
-$setup = Join-Path $projectRoot 'dist\Morror-0.9.0-Setup-win64.exe'
+$setup = Join-Path $projectRoot 'dist\Morror-0.11.1-Setup-win64.exe'
 Write-Host "Готово: $setup"
-
-
-
