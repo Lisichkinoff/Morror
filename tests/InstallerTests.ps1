@@ -6,7 +6,7 @@ New-Item -ItemType Directory -Force -Path $testRoot | Out-Null
 # The test variant redirects shortcuts into its own directory and creates no uninstall registry key.
 & $Compiler /Qp /DTestBuild=1 ("/DPayloadDir=" + $Payload) ("/DInstallerOutput=" + $testRoot) ("/DFileManifest=" + $Manifest) $Recipe
 if ($LASTEXITCODE -ne 0) { throw 'Ошибка сборки тестового установщика.' }
-$testSetup = Join-Path $testRoot 'Morror-0.11.1-Setup-Test.exe'
+$testSetup = Join-Path $testRoot 'Morror-0.9.1-Setup-Test.exe'
 $script:checkCount = 0
 function Assert-Installer([bool]$Condition, [string]$Message) {
     if (!$Condition) { throw $Message }
@@ -23,7 +23,7 @@ function Run-Installer([string]$Executable, [string[]]$Arguments) {
 Add-Type -AssemblyName System.Drawing
 $executable = Join-Path $Payload 'Morror.exe'
 $version = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($executable)
-Assert-Installer ($version.ProductName -eq 'Morror' -and $version.FileVersion -eq '0.11.1.0') 'Executable has product metadata and version 0.11.1.0'
+Assert-Installer ($version.ProductName -eq 'Morror' -and $version.FileVersion -eq '0.9.1.0') 'Executable has product metadata and version 0.9.1.0'
 $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($executable)
 try {
     $bitmap = $icon.ToBitmap()

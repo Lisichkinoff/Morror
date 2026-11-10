@@ -1,7 +1,7 @@
-#define MyAppVersion "0.11.1"
+#define MyAppVersion "0.9.1"
 #define ProjectRoot AddBackslash(SourcePath) + ".."
 #ifndef PayloadDir
-  #define PayloadDir ProjectRoot + "\dist\Morror-0.11.1"
+  #define PayloadDir ProjectRoot + "\dist\Morror-0.9.1"
 #endif
 #ifndef InstallerOutput
   #define InstallerOutput ProjectRoot + "\dist"
@@ -10,13 +10,13 @@
 [Setup]
 #ifdef TestBuild
 AppId=Morror.Installer.Test
-OutputBaseFilename=Morror-0.11.1-Setup-Test
+OutputBaseFilename=Morror-0.9.1-Setup-Test
 CreateUninstallRegKey=no
 AppMutex=Local\Morror.Installer.Test.App
 SetupMutex=Local\Morror.Installer.Test.Setup
 #else
 AppId={{DF58DC88-4346-493F-BCCE-9BCA671D2387}
-OutputBaseFilename=Morror-0.11.1-Setup-win64
+OutputBaseFilename=Morror-0.9.1-Setup-win64
 AppMutex=Local\Morror.Desktop
 SetupMutex=Local\Morror.Setup
 #endif
@@ -24,7 +24,7 @@ AppName=Morror
 AppVersion={#MyAppVersion}
 AppVerName=Morror {#MyAppVersion}
 AppPublisher=Morror
-VersionInfoVersion=0.11.1.0
+VersionInfoVersion=0.9.1.0
 VersionInfoDescription=Установка Morror
 DefaultDirName={localappdata}\Programs\Morror
 DefaultGroupName=Morror

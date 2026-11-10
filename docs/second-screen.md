@@ -1,4 +1,4 @@
-# Native second monitor · Morror 0.11.1
+# Native second monitor · Morror 0.9.1
 
 An Android phone or tablet can act as an extended Windows display. Windows applications remain ordinary desktop applications; Android runs the native **Morror Monitor** receiver, without a browser or WebView. The Windows UI currently uses Russian labels.
 

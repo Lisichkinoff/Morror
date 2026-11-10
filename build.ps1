@@ -1,4 +1,4 @@
-param([switch]$Test, [string]$OutputDirectory = 'dist\Morror-0.11.1')
+param([switch]$Test, [string]$OutputDirectory = 'dist\Morror-0.9.1')
 $ErrorActionPreference = 'Stop'
 $projectRoot = $PSScriptRoot
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
@@ -40,6 +40,7 @@ Get-ChildItem -LiteralPath $engine -File | Where-Object { $_.Extension -in @('.e
 }
 Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md'),(Join-Path $projectRoot 'THIRD-PARTY-NOTICES.md') -Destination $output -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\second-screen.md') -Destination (Join-Path $output 'SECOND-SCREEN.md') -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'docs') -Destination $output -Recurse -Force
 $licenses = Join-Path $output 'licenses'
 New-Item -ItemType Directory -Force -Path $licenses | Out-Null
 Copy-Item -LiteralPath (Join-Path $projectRoot 'licenses\scrcpy-LICENSE.txt') -Destination $licenses -Force
