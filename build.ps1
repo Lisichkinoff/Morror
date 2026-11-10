@@ -1,4 +1,4 @@
-param([switch]$Test, [string]$OutputDirectory = 'dist\Morror-0.9.1')
+param([switch]$Test, [string]$OutputDirectory = 'dist\Morror-0.9.2')
 $ErrorActionPreference = 'Stop'
 $projectRoot = $PSScriptRoot
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
@@ -10,7 +10,7 @@ $references = @('System.dll','System.Core.dll','System.Xaml.dll','System.Drawing
 $qrLibrary = Join-Path $projectRoot 'tools\qrcoder-1.8.1\lib\net40\QRCoder.dll'
 if (!(Test-Path -LiteralPath $qrLibrary)) { throw 'Сначала выполните scripts\get-qr-dependencies.ps1.' }
 $references += '/reference:' + $qrLibrary
-$sources = @('Core.cs','App.cs','TrayController.cs','WirelessPairing.cs','QrPairingDialog.cs','MirrorWindow.cs','DeviceCapabilities.cs','FileTransfer.cs','ClipboardTransfer.cs','TransferDialog.cs','SecondScreenProtocol.cs','MonitorResolution.cs','ScreenTouchInjection.cs','NativeMonitor.cs','VirtualMonitorDriver.cs','WasapiMonitorAudio.cs','SecondScreenDialog.cs','AssemblyInfo.cs') | ForEach-Object { Join-Path $projectRoot ('src\' + $_) }
+$sources = @('Core.cs','App.cs','TrayController.cs','WirelessPairing.cs','QrPairingDialog.cs','MirrorWindow.cs','DeviceCapabilities.cs','FileTransfer.cs','ClipboardTransfer.cs','TransferDialog.cs','SecondScreenProtocol.cs','MonitorResolution.cs','ScreenTouchInjection.cs','NativeMonitor.cs','DisplayTopology.cs','VirtualMonitorDriver.cs','WasapiMonitorAudio.cs','AndroidMonitorClient.cs','SecondScreenDialog.cs','AssemblyInfo.cs') | ForEach-Object { Join-Path $projectRoot ('src\' + $_) }
 $resources = @('MainWindow.xaml','QrWindow.xaml','TransferWindow.xaml','SecondScreenWindow.xaml') | ForEach-Object { '/resource:' + (Join-Path $projectRoot ('src\' + $_)) + ',' + $_ }
 $icon = Join-Path $projectRoot 'assets\morror.ico'
 if (!(Test-Path -LiteralPath $icon)) { & (Join-Path $projectRoot 'scripts\build-icon.ps1') }

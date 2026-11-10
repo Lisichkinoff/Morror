@@ -56,7 +56,7 @@ namespace Morror
         public override string ToString() { return Name + " · " + Bounds.Width + " × " + Bounds.Height + (Primary ? " · основной" : " · дополнительный"); }
         public static ScreenChoice[] Read()
         {
-            return System.Windows.Forms.Screen.AllScreens.Select((s, i) => new ScreenChoice { Name = "Экран " + (i + 1), DeviceName = s.DeviceName, Bounds = s.Bounds, Primary = s.Primary }).ToArray();
+            return VirtualMonitorDriver.ReadScreens();
         }
     }
 

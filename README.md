@@ -4,9 +4,9 @@
 
 Morror combines a Russian-language WPF desktop interface, the official [scrcpy 5.0.1](https://github.com/Genymobile/scrcpy/tree/v5.0.1) runtime for Android-to-PC mirroring, and a native Android receiver for PC-to-Android display extension.
 
-**Latest release: 0.9.1.** The installer and portable ZIP include Android mirroring, the native second-monitor receiver, encoder and signed virtual display component.
+**Latest release: 0.9.2.** The installer and portable ZIP include Android mirroring, the native second-monitor receiver, encoder and signed virtual display component.
 
-[Published releases](https://github.com/Lisichkinoff/Morror/releases) · [Download 0.9.1 installer](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.1/Morror-0.9.1-Setup-win64.exe) · [Download 0.9.1 portable ZIP](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.1/Morror-0.9.1-win64.zip) · [Second-monitor guide](docs/second-screen.md)
+[Published releases](https://github.com/Lisichkinoff/Morror/releases) · [Download 0.9.2 installer](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.2/Morror-0.9.2-Setup-win64.exe) · [Download 0.9.2 portable ZIP](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.2/Morror-0.9.2-win64.zip) · [Second-monitor guide](docs/second-screen.md)
 
 ## Features
 
@@ -23,7 +23,7 @@ The desktop UI currently uses Russian labels. Mirroring, file transfer and secon
 
 ## Screenshots
 
-Fresh screenshots of the current 0.9.1 interface. Desktop screenshots use a simulated device and generated images, without personal files or clipboard contents.
+Screenshots captured with Morror 0.9.1; the current release retains the same interface layout. Desktop screenshots use a simulated device and generated images, without personal files or clipboard contents.
 
 ### Connection dashboard
 
@@ -58,7 +58,7 @@ A real Pixel 8 displaying a **synthetic test pattern at 2400 × 1080**, with the
 
 The Windows installer runs per user. Installing the virtual display component, or registering a previously unsupported monitor resolution, requires Windows administrator approval. Root access on Android is not required.
 
-Run `dist/Morror-0.9.1/Morror.exe`, install `dist/Morror-0.9.1-Setup-win64.exe`, or extract the entire `dist/Morror-0.9.1-win64.zip`. Keep the runtime, QRCoder library and license files together. Exit an older running instance from its tray menu before updating.
+Run `dist/Morror-0.9.2/Morror.exe`, install `dist/Morror-0.9.2-Setup-win64.exe`, or extract the entire `dist/Morror-0.9.2-win64.zip`. Keep the runtime, QRCoder library and license files together. Exit an older running instance from its tray menu before updating.
 
 ## Mirror Android on your PC
 
@@ -144,13 +144,15 @@ Run in PowerShell from the repository root:
 
 The desktop build uses the .NET Framework C# compiler; a separate .NET SDK is not required. Android builds use a pinned JDK and Android SDK without Gradle. Dependency archives are pinned by version and SHA-256. Toolchains and downloaded archives stay in ignored directories. The APK signing key is created locally under `tools/native-monitor`; preserve it for compatible APK updates and do not commit it.
 
-Outputs go to `dist/Morror-0.9.1`. `build.ps1` accepts `-OutputDirectory`. The Android APK, native encoder, signed driver package and licenses are included in the Windows payload.
+Outputs go to `dist/Morror-0.9.2`. `build.ps1` accepts `-OutputDirectory`. The Android APK, native encoder, signed driver package and licenses are included in the Windows payload.
 
 ## Validation
 
 Automated checks cover ADB arguments and timeouts, pairing and device selection, connection migration, gallery/file-transfer limits, clipboard payloads, tray/window behavior, native H.264 packet boundaries, authenticated monitor sessions, resolution calculations and configuration backups. UI screenshots use test fixtures. Installer tests use isolated destinations and preserve unrelated files.
 
 Hardware checks on a Pixel 8 over Wi-Fi verified the native Android decoder, 2400 × 1080 full-screen output and returning touch events. The installed Windows virtual monitor was switched to 2400 × 1080 at 60 Hz while preserving physical monitor dimensions, positions and primary selection. These checks do not establish universal device compatibility, sustained FPS, latency or USB-cable performance; see the guide for remaining validation.
+
+The USB display hotfix also verifies a real Pixel 8 over USB: Windows CCD activates and resizes a detached virtual display while retaining exact physical timings, and the Android receiver displays an RGB fixture captured from that 1920 × 864 Windows desktop. Returning touch and monitor detachment passed. A short NVENC sample reported 51.8 FPS; extended-duration performance, end-to-end latency and system audio still require separate checks.
 
 ## Credits and licenses
 

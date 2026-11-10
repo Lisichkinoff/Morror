@@ -49,6 +49,8 @@ class SecondScreenTests
     }
     static void Resolution()
     {
+        Check(MonitorResolution.ForDevice(2136,3200,2)==new Size(3200,2136),"Auto preserves Xiaomi Pad 7's panel dimensions");
+        Check(MonitorResolution.ForDevice(2136,3200,1)==new Size(1920,1282),"Full HD keeps Xiaomi Pad 7's aspect ratio with even encoder dimensions");
         Check(MonitorResolution.ForDevice(1080,2400,2)==new Size(2400,1080),"Auto uses the full native Pixel 8 panel instead of forced 16:9");
         Check(MonitorResolution.ForDevice(1080,2400,1)==new Size(1920,864),"Full HD budget keeps the phone aspect ratio");
         Check(MonitorResolution.ForDevice(1080,2400,0)==new Size(1280,576),"HD budget keeps the phone aspect ratio");
@@ -66,6 +68,75 @@ class SecondScreenTests
         string directory=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Resolution-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(directory);string path=Path.Combine(directory,"vdd_settings.xml");File.WriteAllText(path,xml.OuterXml);
         Check(MonitorResolution.UpdateConfiguration(path,1280,576,30)&&Directory.GetFiles(directory,"*.bak").Length==1,"Driver mode update is atomic and retains an original backup");
         Check(!MonitorResolution.UpdateConfiguration(path,1280,576,30)&&Directory.GetFiles(directory,"*.bak").Length==1,"Unchanged driver configuration is not rewritten");
+    }
+    static void PhysicalRefreshRate()
+    {
+        Check(Marshal.SizeOf(typeof(DisplayTopology.DisplayPath))==72&&Marshal.SizeOf(typeof(DisplayTopology.DisplayMode))==64,"CCD interop structures match the native Windows ABI");
+        var physicalPath=new DisplayTopology.DisplayPath{flags=1,source=new DisplayTopology.Source{adapter=new DisplayTopology.Luid{low=1},mode=0},target=new DisplayTopology.Target{mode=1,available=1,refresh=new DisplayTopology.Rational{numerator=239760,denominator=1000}}};
+        var virtualPath=new DisplayTopology.DisplayPath{source=new DisplayTopology.Source{adapter=new DisplayTopology.Luid{low=2},mode=uint.MaxValue},target=new DisplayTopology.Target{mode=uint.MaxValue,available=1}};
+        var sourceMode=new DisplayTopology.DisplayMode{type=1,adapter=physicalPath.source.adapter,data=new DisplayTopology.ModeData{source=new DisplayTopology.SourceMode{width=2560,height=1440,pixelFormat=4}}};
+        var targetMode=new DisplayTopology.DisplayMode{type=2,data=new DisplayTopology.ModeData{timing0=12345678,timing1=239760,timing2=1000}};
+        var topology=new DisplayTopology.Snapshot{paths=new[]{physicalPath,virtualPath},modes=new[]{sourceMode,targetMode}};
+        var attached=DisplayTopology.CreateAttachment(topology,p=>p.source.adapter.low==2,2400,1080,60,2560,0);
+        Check(attached.paths.Length==2&&attached.paths[0].Equals(physicalPath)&&attached.modes[0].Equals(sourceMode)&&attached.modes[1].Equals(targetMode),"Attaching an IDD display preserves exact physical timings, fractional refresh rates and path order");
+        var configured=attached.modes[(int)attached.paths[1].source.mode].data.source;
+        Check(configured.width==2400&&configured.height==1080&&configured.x==2560&&attached.paths[1].target.mode==uint.MaxValue,"CCD supplies the requested virtual source and lets Windows choose only its missing target timing");
+        var changed=DisplayTopology.CreateAttachment(attached,p=>p.source.adapter.low==2,1920,864,60,2560,0);
+        Check(changed.paths.Length==2&&changed.modes.Length==attached.modes.Length&&changed.modes[(int)changed.paths[1].source.mode].data.source.width==1920,"Changing an active virtual mode does not create duplicate source-mode records");
+        virtualPath.target.available=0;
+        Check(DisplayTopology.CreateAttachment(new DisplayTopology.Snapshot{paths=new[]{physicalPath,virtualPath},modes=topology.modes},p=>p.source.adapter.low==2,2400,1080,60,2560,0)==null,"Unavailable virtual targets are not activated and unrelated displays are not substituted");
+        var original=new VirtualMonitorDriver.Mode{x=0,y=0,width=2560,height=1440,bits=32,frequency=240};
+        var current=original;int restores=0;
+        var saved=new Dictionary<string,VirtualMonitorDriver.Mode>{{"physical-test",original}};
+        using(var guard=new VirtualMonitorDriver.PhysicalModes(saved,device=>current,(device,mode)=>{current=mode;restores++;}))
+        {current.frequency=60;}
+        Check(current.frequency==240&&restores==1,"Virtual display changes restore the physical monitor's 240 Hz refresh rate");
+        using(var guard=new VirtualMonitorDriver.PhysicalModes(saved,device=>current,(device,mode)=>{current=mode;restores++;})){}
+        Check(restores==1,"Unchanged physical displays do not receive redundant mode changes");
+        using(var guard=new VirtualMonitorDriver.PhysicalModes(saved,device=>current,(device,mode)=>{current=mode;}))
+        {current.x=-2560;current.width=1920;current.orientation=1;}
+        Check(current.x==0&&current.width==2560&&current.orientation==0,"Mode preservation also restores physical display geometry and orientation");
+        bool rejected=false;
+        try{current.frequency=60;using(var guard=new VirtualMonitorDriver.PhysicalModes(saved,device=>current,(device,mode)=>{})){};}
+        catch(IOException){rejected=true;}
+        Check(rejected,"Windows failing to restore a physical mode is reported instead of silently leaving it at 60 Hz");
+    }
+    static void FreshScreenGeometry()
+    {
+        var cached=System.Windows.Forms.Screen.AllScreens.First();
+        var actual=ScreenChoice.Read().Single(s=>s.DeviceName==cached.DeviceName);
+        var field=typeof(System.Windows.Forms.Screen).GetField("bounds",BindingFlags.Instance|BindingFlags.NonPublic);
+        if(field==null)throw new Exception("Cannot simulate stale WinForms screen bounds.");
+        var saved=field.GetValue(cached);
+        try
+        {
+            field.SetValue(cached,new Rectangle(actual.Bounds.X,actual.Bounds.Y,320,200));
+            Check(cached.Bounds.Width==320,"Regression fixture reproduces stale WinForms display geometry");
+            Check(ScreenChoice.Read().Single(s=>s.DeviceName==cached.DeviceName).Bounds==actual.Bounds,"Display validation reads live Windows pixels despite stale WinForms bounds");
+        }
+        finally{field.SetValue(cached,saved);}
+    }
+    static void InstallationErrors()
+    {
+        Check(AndroidMonitorClient.InstallationError("Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE]").Contains("другой подписью"),"APK signing conflict explains how to replace the old receiver");
+        Check(AndroidMonitorClient.InstallationError("Failure [INSTALL_FAILED_USER_RESTRICTED]").Contains("Xiaomi"),"Restricted APK installation offers Xiaomi-specific guidance");
+        Check(AndroidMonitorClient.InstallationError("Failure [INSTALL_FAILED_VERSION_DOWNGRADE]").Contains("Обновите Morror на ПК"),"APK downgrade does not automatically uninstall the newer app");
+        Check(AndroidMonitorClient.InstallationError("Failure [INSTALL_FAILED_INSUFFICIENT_STORAGE]").Contains("свободного места"),"APK storage failure has an actionable explanation");
+        Check(AndroidMonitorClient.InstallationError("Failure [INSTALL_FAILED_OLDER_SDK]").Contains("Android 8.0"),"Unsupported Android version is identified");
+        Check(AndroidMonitorClient.InstallationError("unexpected adb failure").Contains("unexpected adb failure"),"Unknown APK failures preserve the original Android diagnostic");
+    }
+    static string FixtureApk { get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Android fixture","Morror Монитор.apk"); } }
+    static async Task InstallationCommands()
+    {
+        string fixture=Assembly.GetExecutingAssembly().Location;
+        await AndroidMonitorClient.Install(fixture,"install-success",FixtureApk);
+        Check(true,"APK install targets the selected device with -r and preserves a Unicode path with spaces");
+        bool rejected=false;try{await AndroidMonitorClient.Install(fixture,"install-restricted",FixtureApk);}catch(IOException error){rejected=error.Message.Contains("Xiaomi")&&error.Message.Contains("INSTALL_FAILED_USER_RESTRICTED");}
+        Check(rejected,"A failed ADB installation propagates the Android reason and installation guidance");
+        rejected=false;try{await AndroidMonitorClient.Install(fixture,"install-unconfirmed",FixtureApk);}catch(IOException){rejected=true;}
+        Check(rejected,"A zero ADB exit code without the Success line does not confirm APK installation");
+        string encoder=await NativeMonitorEncoder.Select(fixture,CancellationToken.None,3200,2136,60);
+        Check(encoder=="nvenc","Encoder probing uses the tablet's real dimensions and bitrate instead of rejecting NVENC with a 128x128 frame");
     }
     static async Task Send(Stream stream,int type,object value)
     {
@@ -99,8 +170,36 @@ class SecondScreenTests
                 Check(decoded.ExitCode==0&&decoded.Output.Split('\n').Count(line=>line.StartsWith("0,"))>=8,"Independent decoder verifies all native H.264 sample frames");
             }
         }
+        Check(await Task.WhenAny(server.Completion,Task.Delay(5000))==server.Completion,"Receiver disconnect completes the owned monitor session without waiting for a reconnect");
         await server.Stop();Check(released>0,"Native session teardown releases touches and stops the encoder");
-        Check(!System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners().Any(p=>p.Port==server.Port&&IPAddress.IsLoopback(p.Address)),"Stopping native monitor closes its listening port");
+        bool refused=false;
+        using(var probe=new TcpClient())
+        {try{await probe.ConnectAsync(IPAddress.Loopback,server.Port);}catch(SocketException){refused=true;}}
+        Check(refused,"Stopping native monitor refuses new connections on its listening port");
+    }
+    static async Task DisconnectCleanup(string executable,string codec)
+    {
+        var screen=new ScreenChoice{Name="Synthetic",Bounds=new Rectangle(0,0,640,360)};
+        var server=new NativeMonitorServer(executable,codec,screen,640,360,30,false,f=>Task.FromResult(0),()=>Task.FromResult(0),true);
+        server.Start();
+        using(var client=new TcpClient())
+        {
+            await client.ConnectAsync(IPAddress.Loopback,server.Port);var stream=client.GetStream();
+            byte[] auth=Encoding.ASCII.GetBytes("MRRMN001"+server.Token);await stream.WriteAsync(auth,0,auth.Length);
+            var drain=Task.Run(async()=>{var buffer=new byte[32768];try{while(await stream.ReadAsync(buffer,0,buffer.Length)>0){}}catch(IOException){}catch(ObjectDisposedException){}});
+            Check(await Task.WhenAny(server.Completion,Task.Delay(9000))==server.Completion,"Missing Android heartbeats terminate a half-open USB session within a bounded timeout");
+            await drain;
+        }
+        Window owner;using(var source=Assembly.GetExecutingAssembly().GetManifestResourceStream("MainWindow.xaml"))owner=(Window)System.Windows.Markup.XamlReader.Load(source);
+        owner.Show();
+        var dialog=new SecondScreenDialog(owner,"not-an-adb.exe",null);var type=typeof(SecondScreenDialog);var flags=BindingFlags.NonPublic|BindingFlags.Instance;
+        var window=(Window)type.GetField("window",flags).GetValue(dialog);
+        type.GetField("server",flags).SetValue(dialog,server);
+        type.GetField("sessionDisplay",flags).SetValue(dialog,"nonexistent-owned-display-fixture");
+        await (Task)type.GetMethod("CheckSession",flags).Invoke(dialog,null);
+        Check(type.GetField("server",flags).GetValue(dialog)==null&&type.GetField("sessionDisplay",flags).GetValue(dialog)==null,"Disconnect clears the adopted display even if it was already active at session start");
+        Check(((Button)window.FindName("MonitorStart")).IsEnabled&&!((Button)window.FindName("MonitorStop")).IsEnabled,"Disconnect restores start/stop controls after automatic session cleanup");
+        type.GetField("allowClose",flags).SetValue(dialog,true);window.Close();owner.Close();
     }
     [StructLayout(LayoutKind.Sequential)]struct NativePoint{public int x,y;}
     [DllImport("user32.dll",EntryPoint="GetPhysicalCursorPos")]static extern bool GetCursorPos(out NativePoint p);
@@ -129,8 +228,20 @@ class SecondScreenTests
     }
     [STAThread]static int Main(string[] args)
     {
+        if(args.Length>0&&args[0]=="-hide_banner")
+        {
+            int input=Array.IndexOf(args,"-i"),codec=Array.IndexOf(args,"-c:v"),rate=Array.IndexOf(args,"-b:v");
+            return input>=0&&codec>=0&&rate>=0&&args[input+1]=="color=black:s=3200x2136:r=60"&&args[codec+1]=="h264_nvenc"&&args[rate+1]=="10M"?0:1;
+        }
+        // Acts only as a child-process fixture; never invokes ADB or touches Android.
+        if(args.Length>0&&args[0]=="-s")
+        {
+            if(args.Length!=5||args[2]!="install"||args[3]!="-r"||args[4]!=FixtureApk)return 2;
+            if(args[1]=="install-restricted"){Console.Error.WriteLine("Failure [INSTALL_FAILED_USER_RESTRICTED]");return 1;}
+            Console.WriteLine(args[1]=="install-success"?"Success":"Success is still pending");return 0;
+        }
         int result=1;var application=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};application.Startup+=async(s,e)=>{
-            try{Protocol();Resolution();Ui();VirtualMonitorDriver.VerifyBundle(args[1]);Check(true,"Bundled display driver files match pinned hashes and a trusted Windows catalog signature");await NativeTouch();string codec=await NativeMonitorEncoder.Select(args[0],CancellationToken.None);Console.WriteLine("Encoder: "+codec);await Network(args[0],codec);Console.WriteLine(checks+" native monitor checks passed.");result=0;}catch(Exception error){Console.WriteLine(error);}finally{application.Shutdown();}
+            try{Protocol();Resolution();PhysicalRefreshRate();FreshScreenGeometry();InstallationErrors();await InstallationCommands();Ui();VirtualMonitorDriver.VerifyBundle(args[1]);Check(true,"Bundled display driver files match pinned hashes and a trusted Windows catalog signature");await NativeTouch();string codec=await NativeMonitorEncoder.Select(args[0],CancellationToken.None);Console.WriteLine("Encoder: "+codec);await Network(args[0],codec);await DisconnectCleanup(args[0],codec);Console.WriteLine(checks+" native monitor checks passed.");result=0;}catch(Exception error){Console.WriteLine(error);}finally{application.Shutdown();}
         };application.Run();return result;
     }
 }

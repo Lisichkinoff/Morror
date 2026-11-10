@@ -21,7 +21,7 @@ namespace Morror
             [MarshalAs(UnmanagedType.ByValTStr, SizeConst=128)] public string id;
             [MarshalAs(UnmanagedType.ByValTStr, SizeConst=128)] public string key;
         }
-        [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)] struct Mode
+        [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)] internal struct Mode
         {
             [MarshalAs(UnmanagedType.ByValTStr,SizeConst=32)] public string name;
             public ushort spec,version,size,extra; public uint fields;
@@ -37,20 +37,87 @@ namespace Morror
             return list.ToArray();
         }
         static bool IsDriver(DisplayDevice d) { return d.description != null && d.description.IndexOf("Virtual Display Driver",StringComparison.OrdinalIgnoreCase)>=0; }
+        internal sealed class PhysicalModes : IDisposable
+        {
+            readonly Dictionary<string,Mode> saved;
+            readonly Func<string,Mode?> read;
+            readonly Action<string,Mode> apply;
+            bool disposed;
+            internal PhysicalModes(Dictionary<string,Mode> saved,Func<string,Mode?> read,Action<string,Mode> apply)
+            {this.saved=saved;this.read=read;this.apply=apply;}
+            static bool Same(Mode a,Mode b)
+            {return a.x==b.x&&a.y==b.y&&a.width==b.width&&a.height==b.height&&a.frequency==b.frequency&&a.bits==b.bits&&a.orientation==b.orientation;}
+            public void Dispose()
+            {
+                if(disposed)return;disposed=true;
+                foreach(var entry in saved)
+                {
+                    Mode? current=read(entry.Key);
+                    if(!current.HasValue)throw new IOException("Windows отключила физический монитор "+entry.Key+" при настройке виртуального экрана.");
+                    if(Same(entry.Value,current.Value))continue;
+                    apply(entry.Key,entry.Value);
+                    current=read(entry.Key);
+                    if(!current.HasValue||!Same(entry.Value,current.Value))throw new IOException("Не удалось сохранить исходный режим физического монитора "+entry.Key+": "+entry.Value.frequency+" Гц. Проверьте дополнительные параметры дисплея Windows.");
+                }
+                foreach(var entry in saved)
+                {
+                    Mode? current=read(entry.Key);
+                    if(!current.HasValue||!Same(entry.Value,current.Value))throw new IOException("Windows повторно изменила режим физического монитора. Проверьте его частоту обновления перед повторным запуском Morror.");
+                }
+            }
+        }
+        static Mode? CurrentMode(string device)
+        {
+            var mode=new Mode{size=(ushort)Marshal.SizeOf(typeof(Mode))};
+            return EnumDisplaySettings(device,-1,ref mode)&&mode.width>0&&mode.height>0?(Mode?)mode:null;
+        }
+        internal static PhysicalModes PreservePhysicalModes()
+        {
+            var modes=new Dictionary<string,Mode>();
+            foreach(var adapter in Adapters().Where(d=>(d.flags&1)!=0&&!IsDriver(d)))
+            {var mode=CurrentMode(adapter.name);if(mode.HasValue)modes.Add(adapter.name,mode.Value);}
+            return new PhysicalModes(modes,CurrentMode,(device,mode)=>
+            {
+                mode.fields=0x20|0x80|0x40000|0x80000|0x100000|0x400000;
+                int result=ChangeDisplaySettingsEx(device,ref mode,IntPtr.Zero,0,IntPtr.Zero);
+                if(result!=0)throw new IOException("Windows изменила режим физического монитора и не восстановила "+mode.frequency+" Гц (код "+result+").");
+            });
+        }
         public static bool Installed { get { return Adapters().Any(IsDriver); } }
+        internal static ScreenChoice[] ReadScreens()
+        {
+            // Screen.AllScreens caches Bounds until WinForms processes a display-change
+            // notification. WPF and synchronous polling can keep seeing the previous mode.
+            var screens=new List<ScreenChoice>();
+            foreach(var adapter in Adapters())
+            {
+                if((adapter.flags&1)==0)continue; // DISPLAY_DEVICE_ATTACHED_TO_DESKTOP
+                var mode=new Mode{size=(ushort)Marshal.SizeOf(typeof(Mode))};
+                if(!EnumDisplaySettings(adapter.name,-1,ref mode)||mode.width==0||mode.height==0)continue;
+                screens.Add(new ScreenChoice{Name="Экран "+(screens.Count+1),DeviceName=adapter.name,
+                    Bounds=new System.Drawing.Rectangle(mode.x,mode.y,(int)mode.width,(int)mode.height),Primary=(adapter.flags&4)!=0});
+            }
+            return screens.ToArray();
+        }
         public static bool IsVirtualScreen(string deviceName) { return Adapters().Any(d=>d.name==deviceName && IsDriver(d)); }
         public static ScreenChoice[] Screens() { return ScreenChoice.Read().Where(s=>!s.Primary && IsVirtualScreen(s.DeviceName)).ToArray(); }
         public static bool Attach(int width=1920,int height=1080,int fps=60)
         {
             MonitorResolution.Validate(width,height,fps);
             if(Screens().Length>0) return true;
-            var adapter=Adapters().FirstOrDefault(IsDriver); if(adapter.name==null) return false;
-            var mode=new Mode { size=(ushort)Marshal.SizeOf(typeof(Mode)) };
-            EnumDisplaySettings(adapter.name,-2,ref mode);
-            mode.size=(ushort)Marshal.SizeOf(typeof(Mode)); mode.fields=0x20|0x40000|0x80000|0x100000|0x400000;
-            mode.x=System.Windows.Forms.Screen.AllScreens.Max(s=>s.Bounds.Right);mode.y=0;
-            mode.width=(uint)width;mode.height=(uint)height;mode.bits=32;mode.frequency=(uint)fps;
-            return ChangeDisplaySettingsEx(adapter.name,ref mode,IntPtr.Zero,0,IntPtr.Zero)==0;
+            using(var preserve=PreservePhysicalModes())
+            {
+                var adapter=Adapters().FirstOrDefault(IsDriver);
+                if(adapter.name==null)throw new IOException("Не найден драйвер виртуального дисплея.");
+                var edge=ScreenChoice.Read().OrderByDescending(s=>s.Bounds.Right).First();
+                int result=DisplayTopology.Attach(adapter.name,width,height,fps,edge.Bounds.Right,edge.Bounds.Top);
+                if(result!=0)throw DisplayError("включила",adapter.name,width,height,fps,result);
+                return true;
+            }
+        }
+        static IOException DisplayError(string action,string device,int width,int height,int fps,int result)
+        {
+            return new IOException("Windows не "+action+" виртуальный монитор "+device+" в режиме "+width+" × "+height+" · "+fps+" Гц. Код Windows: "+result+" ("+new Win32Exception(result).Message+").");
         }
         static string AdapterName(){var adapter=Adapters().FirstOrDefault(IsDriver);if(adapter.name==null)throw new IOException("Не найден драйвер виртуального дисплея.");return adapter.name;}
         public static bool SupportsMode(int width,int height,int fps)
@@ -67,11 +134,15 @@ namespace Morror
         {
             MonitorResolution.Validate(width,height,fps);
             if(!Screens().Any(s=>s.DeviceName==deviceName))throw new IOException("Виртуальный экран не подключён.");
-            var mode=new Mode{size=(ushort)Marshal.SizeOf(typeof(Mode))};
-            if(!EnumDisplaySettings(deviceName,-1,ref mode))throw new IOException("Не удалось прочитать режим виртуального экрана.");
-            mode.fields=0x40000|0x80000|0x100000|0x400000;mode.width=(uint)width;mode.height=(uint)height;mode.bits=32;mode.frequency=(uint)fps;
-            int result=ChangeDisplaySettingsEx(deviceName,ref mode,IntPtr.Zero,0,IntPtr.Zero);
-            if(result!=0)throw new IOException("Windows не применила размер виртуального монитора "+width+" × "+height+" (код "+result+").");
+            using(var preserve=PreservePhysicalModes())
+            {
+                var current=CurrentMode(deviceName);
+                if(!current.HasValue)throw new IOException("Не удалось прочитать режим виртуального экрана.");
+                var mode=current.Value;
+                if(mode.width==width&&mode.height==height&&mode.frequency==fps)return;
+                int result=DisplayTopology.Attach(deviceName,width,height,fps,mode.x,mode.y);
+                if(result!=0)throw DisplayError("настроила",deviceName,width,height,fps,result);
+            }
         }
         public static string ConfigurationPath
         {
@@ -90,7 +161,7 @@ namespace Morror
         {
             MonitorResolution.Validate(width,height,fps);
             MonitorResolution.UpdateConfiguration(ConfigurationPath,width,height,fps);
-            RestartVirtualAdapters();
+            using(var preserve=PreservePhysicalModes())RestartVirtualAdapters();
         }
         static void RestartVirtualAdapters()
         {
@@ -116,15 +187,18 @@ namespace Morror
         public static void Detach(string deviceName)
         {
             if(!Screens().Any(s=>s.DeviceName==deviceName))return;
-            var mode=new Mode{size=(ushort)Marshal.SizeOf(typeof(Mode)),fields=0x20|0x80000|0x100000};
-            ChangeDisplaySettingsEx(deviceName,ref mode,IntPtr.Zero,0,IntPtr.Zero);
+            using(var preserve=PreservePhysicalModes())
+            {
+                int result=DisplayTopology.Detach(deviceName);
+                if(result!=0)throw new IOException("Windows не отключила виртуальный монитор (код "+result+"). Повторите остановку сеанса.");
+            }
         }
         public static void InstallBundled()
         {
             string folder=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"runtime","monitor-driver");
             VerifyBundle(folder);
             if(Installed) return;
-            Install(folder);
+            using(var preserve=PreservePhysicalModes())Install(folder);
         }
         public static void VerifyBundle(string folder)
         {

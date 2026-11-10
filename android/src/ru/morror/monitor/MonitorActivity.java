@@ -38,13 +38,13 @@ public final class MonitorActivity extends Activity implements SurfaceHolder.Cal
     private TextView status;
     private volatile boolean closed, connected;
     private volatile Socket socket;
-    private Thread receiver, sender, audioThread;
-    private MediaCodec decoder;
+    private Thread receiver, sender, audioThread, decoderThread;
+    private volatile MediaCodec decoder;
     private AudioTrack audio;
     private int videoWidth, videoHeight, sampleRate, channels;
     private boolean floatAudio;
     private long sequence;
-    private int decodedFrames;
+    private volatile int decodedFrames, renderedFrames;
     private final Map<Integer,Integer> fingers = new HashMap<>();
     private final ArrayDeque<Control> controls = new ArrayDeque<>();
     private final ArrayBlockingQueue<byte[]> audioQueue = new ArrayBlockingQueue<>(8);
@@ -91,7 +91,7 @@ public final class MonitorActivity extends Activity implements SurfaceHolder.Cal
         int port=sessionPort; String token=sessionToken;
         if(port<1 || port>65535 || token==null || !token.matches("[a-f0-9]{64}")) return;
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        closed=false; sequence=0;decodedFrames=0; fingers.clear(); synchronized(controls){controls.clear();}
+        closed=false; sequence=0;decodedFrames=0;renderedFrames=0; fingers.clear(); synchronized(controls){controls.clear();}
         receiver=new Thread(()->receive(port,token),"Morror video"); receiver.start();
     }
     private void receive(int port,String token) {
@@ -135,17 +135,30 @@ public final class MonitorActivity extends Activity implements SurfaceHolder.Cal
         byte[] sps=nal(data,7),pps=nal(data,8); if(sps==null || pps==null) return;
         MediaFormat f=MediaFormat.createVideoFormat("video/avc",videoWidth,videoHeight);
         f.setByteBuffer("csd-0",ByteBuffer.wrap(sps)); f.setByteBuffer("csd-1",ByteBuffer.wrap(pps)); f.setInteger("max-input-size",4*1024*1024); f.setInteger("priority",0); f.setInteger("low-latency",1);
-        decoder=MediaCodec.createDecoderByType("video/avc"); decoder.configure(f,surface.getHolder().getSurface(),null,0); decoder.start();
+        MediaCodec codec=MediaCodec.createDecoderByType("video/avc");
+        try {codec.configure(f,surface.getHolder().getSurface(),null,0);codec.start();}
+        catch(Exception error){codec.release();throw error;}
+        decoder=codec;decoderThread=new Thread(()->drainDecoder(codec),"Morror decoder");decoderThread.start();
     }
     private void decode(byte[] data,long pts) throws Exception {
-        int slot=decoder.dequeueInputBuffer(20000);
+        int slot=decoder.dequeueInputBuffer(50000);
         if(slot>=0) { ByteBuffer b=decoder.getInputBuffer(slot); if(b==null || b.capacity()<data.length) throw new IOException("Недостаточный буфер декодера"); b.clear();b.put(data);decoder.queueInputBuffer(slot,0,data.length,pts,0); }
         else throw new IOException("Декодер не успевает. Уменьшите разрешение или FPS на ПК.");
-        MediaCodec.BufferInfo info=new MediaCodec.BufferInfo(); int output=decoder.dequeueOutputBuffer(info,10000);
-        while(output>=0) {
-            int next=decoder.dequeueOutputBuffer(info,0);decoder.releaseOutputBuffer(output,next<0);output=next;decodedFrames++;
-            if(decodedFrames%30==0) synchronized(controls){if(controls.size()<64){controls.addLast(new Control("stats",new JSONObject().put("frames",decodedFrames).toString().getBytes("UTF-8"),18));controls.notifyAll();}}
-            runOnUiThread(()->status.setVisibility(View.GONE));
+    }
+    private void drainDecoder(MediaCodec codec) {
+        try {
+            MediaCodec.BufferInfo info=new MediaCodec.BufferInfo();boolean first=true;
+            while(!closed && connected && decoder==codec) {
+                int output=codec.dequeueOutputBuffer(info,10000);
+                while(output>=0) {
+                    int next=codec.dequeueOutputBuffer(info,0);
+                    codec.releaseOutputBuffer(output,next<0);decodedFrames++;
+                    if(next<0) {renderedFrames++;if(first){first=false;runOnUiThread(()->status.setVisibility(View.GONE));}}
+                    output=next;
+                }
+            }
+        } catch(Exception error) {
+            if(!closed && connected){android.util.Log.e("MorrorMonitor","Decoder stopped",error);closeSocket();}
         }
     }
     private void enqueueAudio(byte[] data) {
@@ -187,11 +200,17 @@ public final class MonitorActivity extends Activity implements SurfaceHolder.Cal
         return true;
     }
     private void send(DataOutputStream out) {
+        long lastStats=android.os.SystemClock.elapsedRealtime();
         try { while(!closed && connected) {
             Control packet;
             synchronized(controls) { if(controls.isEmpty()) controls.wait(1000);packet=controls.pollFirst(); }
             if(packet==null) {out.writeInt(9);out.writeByte(17);out.writeLong(0);}
             else {out.writeInt(9+packet.body.length);out.writeByte(packet.kind);out.writeLong(0);out.write(packet.body);}
+            long now=android.os.SystemClock.elapsedRealtime();
+            if(now-lastStats>=1000) {
+                byte[] stats=new JSONObject().put("frames",renderedFrames).put("decoded",decodedFrames).toString().getBytes("UTF-8");
+                out.writeInt(9+stats.length);out.writeByte(18);out.writeLong(0);out.write(stats);lastStats=now;
+            }
             out.flush();
         }} catch(Exception e) {if(!closed) closeSocket();}
     }
@@ -199,6 +218,8 @@ public final class MonitorActivity extends Activity implements SurfaceHolder.Cal
     private void disconnect() {closed=true;connected=false;closeSocket();if(sender!=null)sender.interrupt();if(audioThread!=null)audioThread.interrupt();}
     private void releaseMedia() {
         if(audioThread!=null)audioThread.interrupt();
+        Thread drain=decoderThread;decoderThread=null;
+        if(drain!=null && drain!=Thread.currentThread()){drain.interrupt();try{drain.join(1000);}catch(InterruptedException ignored){Thread.currentThread().interrupt();}}
         if(decoder!=null){try{decoder.stop();decoder.release();}catch(Exception ignored){}decoder=null;}
         if(audio!=null){try{audio.pause();audio.release();}catch(Exception ignored){}audio=null;}
         audioThread=null;audioQueue.clear();
