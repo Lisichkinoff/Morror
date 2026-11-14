@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Threading;
+using System.IO;
 using Morror;
 
 // Explicit OS smoke: applies only a mode already registered for the virtual adapter.
@@ -27,9 +28,9 @@ class NativeResolutionSmoke
         DisplayTopology.Snapshot topology=null;
         try
         {
-            if(args.Length==0||args.Length%3!=0)throw new ArgumentException("Pass successive width height fps triplets.");
+            if(args.Length<2||(args.Length-1)%3!=0)throw new ArgumentException("Pass the FFmpeg path and successive width height fps triplets.");
             topology=DisplayTopology.Read();string display=null;
-            for(int index=0;index<args.Length;index+=3)
+            for(int index=1;index<args.Length;index+=3)
             {
             int width=int.Parse(args[index]),height=int.Parse(args[index+1]),fps=int.Parse(args[index+2]);
             if(!VirtualMonitorDriver.SupportsMode(width,height,fps))throw new Exception("Driver does not advertise the requested native mode.");
@@ -41,8 +42,22 @@ class NativeResolutionSmoke
             if(monitor.Bounds.Width!=width||monitor.Bounds.Height!=height)throw new Exception("Windows did not apply the native dimensions: "+monitor.Bounds);
             Console.WriteLine("PASS Windows virtual monitor uses "+monitor.Bounds.Width+"x"+monitor.Bounds.Height+" pixels.");
             VerifyPhysical(topology);
+            if(index==1)
+            {
+                string codec=NativeMonitorEncoder.Select(args[0],CancellationToken.None,width,height,fps).GetAwaiter().GetResult();
+                var capture=NativeMonitorEncoder.SelectCapture(args[0],codec,monitor,width,height,fps).GetAwaiter().GetResult();
+                using(var encoder=new NativeMonitorEncoder())
+                using(var timeout=new CancellationTokenSource(5000))
+                {
+                    var reader=new MonitorVideoReader(new BufferedStream(encoder.Start(args[0],codec,monitor.Bounds,width,height,fps,false,capture),65536));
+                    byte[] frame;
+                    using(timeout.Token.Register(encoder.Dispose))frame=reader.ReadFrame(timeout.Token).GetAwaiter().GetResult();
+                    if(!MonitorVideoReader.HasNal(frame,5))throw new Exception("Real display stream did not start with an H.264 IDR.");
+                    Console.WriteLine("PASS Real virtual-display capture produces H.264 ("+(capture==null?"GDI":"DXGI/NVENC")+").");
+                }
             }
-            VirtualMonitorDriver.Detach(display);
+            }
+            VirtualMonitorDriver.DetachIdleScreens();
             if(VirtualMonitorDriver.Screens().Any(s=>s.DeviceName==display))throw new Exception("Virtual display remained attached after stop.");
             Console.WriteLine("PASS Virtual monitor detached from the real Windows desktop.");VerifyPhysical(topology);return 0;
         }

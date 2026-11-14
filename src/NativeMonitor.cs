@@ -30,41 +30,105 @@ namespace Morror
         }
         public static int Length(byte[] b) { long n=((long)b[0]<<24)|((long)b[1]<<16)|((long)b[2]<<8)|b[3];if(n<9 || n>MaximumPacket)throw new IOException("Недопустимый размер пакета.");return (int)n; }
     }
-    // Annex B NAL and AUD boundaries can cross arbitrary TCP/pipe read boundaries.
-    public sealed class H264AccessUnits
+    // FFmpeg writes one encoded H.264 access unit per AVI video chunk.
+    // The length lets us send the frame immediately, without reading the next frame.
+    internal sealed class MonitorVideoReader
     {
-        readonly List<byte> pending=new List<byte>();
-        readonly MemoryStream unit=new MemoryStream(); bool hasPicture;
-        int scan,nalStart=-1;
-        public static int Prefix(IList<byte> b,int i)
-        { if(i+3>b.Count || b[i]!=0 || b[i+1]!=0)return 0;if(b[i+2]==1)return 3;return i+4<=b.Count && b[i+2]==0 && b[i+3]==1?4:0; }
-        public List<byte[]> Push(byte[] data,int count,bool end=false)
+        readonly Stream stream;
+        bool started;
+        internal MonitorVideoReader(Stream stream) { this.stream = stream; }
+
+        internal async Task<byte[]> ReadFrame(CancellationToken cancellation)
         {
-            for(int i=0;i<count;i++)pending.Add(data[i]);if(pending.Count>MonitorWire.MaximumPacket)throw new IOException("Поток H.264 повреждён.");
-            var frames=new List<byte[]>();
-            while(scan+4<=pending.Count)
+            if (!started)
             {
-                int prefix=Prefix(pending,scan);if(prefix==0){scan++;continue;}
-                if(nalStart>=0) AddNal(pending.GetRange(nalStart,scan-nalStart).ToArray(),frames);
-                nalStart=scan;scan+=prefix;
+                byte[] riff = await MonitorWire.Read(stream, 12, cancellation).ConfigureAwait(false);
+                if (Tag(riff, 0) != "RIFF" || Tag(riff, 8) != "AVI ")
+                    throw new IOException("Кодировщик вернул неизвестный формат видео.");
+
+                while (true)
+                {
+                    byte[] header = await MonitorWire.Read(stream, 8, cancellation).ConfigureAwait(false);
+                    uint length = BitConverter.ToUInt32(header, 4);
+                    if (Tag(header, 0) == "LIST" && length >= 4)
+                    {
+                        byte[] kind = await MonitorWire.Read(stream, 4, cancellation).ConfigureAwait(false);
+                        if (Tag(kind, 0) == "movi") break;
+                        length -= 4;
+                    }
+                    if (length > 65536) throw new IOException("Заголовок видео слишком большой.");
+                    await MonitorWire.Read(stream, (int)(length + (length & 1)), cancellation).ConfigureAwait(false);
+                }
+                started = true;
             }
-            if(nalStart>0){pending.RemoveRange(0,nalStart);scan-=nalStart;nalStart=0;}
-            if(end)
+            while (true)
             {
-                if(pending.Count>0)AddNal(pending.ToArray(),frames);
-                pending.Clear();scan=0;nalStart=-1;
-                if(hasPicture){frames.Add(unit.ToArray());unit.SetLength(0);hasPicture=false;}
+                byte[] header = await MonitorWire.Read(stream, 8, cancellation).ConfigureAwait(false);
+                uint length = BitConverter.ToUInt32(header, 4);
+                if (Tag(header, 0) != "00dc" || length > MonitorWire.MaximumPacket - 9)
+                    throw new IOException("Кодировщик вернул недопустимый видеокадр.");
+                if (length == 0) continue;
+                byte[] frame = await MonitorWire.Read(stream, (int)length, cancellation).ConfigureAwait(false);
+                if ((length & 1) != 0) await MonitorWire.Read(stream, 1, cancellation).ConfigureAwait(false);
+                return frame;
             }
-            return frames;
         }
-        void AddNal(byte[] nal,List<byte[]> frames)
+
+        static string Tag(byte[] bytes, int offset) { return Encoding.ASCII.GetString(bytes, offset, 4); }
+        internal static bool HasNal(byte[] frame, int type)
         {
-            int prefix=Prefix(nal,0);if(prefix==0 || nal.Length<=prefix)return;int type=nal[prefix]&31;
-            if(type==9 && hasPicture){frames.Add(unit.ToArray());unit.SetLength(0);hasPicture=false;}
-            unit.Write(nal,0,nal.Length);if(unit.Length>MonitorWire.MaximumPacket-9)throw new IOException("Кадр H.264 слишком большой.");
-            if(type==1 || type==5)hasPicture=true;
+            for (int i = 2; i + 1 < frame.Length; i++)
+                if (frame[i] == 1 && frame[i - 1] == 0 && frame[i - 2] == 0 && (frame[i + 1] & 31) == type)
+                    return true;
+            return false;
         }
     }
+
+    internal sealed class MonitorVideoQueue : IDisposable
+    {
+        const int MaxFrames = 3;
+        readonly Queue<Tuple<byte[], long>> pending = new Queue<Tuple<byte[], long>>();
+        readonly SemaphoreSlim ready = new SemaphoreSlim(0, 1);
+        bool needsKeyframe = true;
+
+        internal void Add(byte[] frame, long timestamp)
+        {
+            lock (pending)
+            {
+                if (pending.Count >= MaxFrames)
+                {
+                    pending.Clear();
+                    needsKeyframe = true;
+                }
+                // A delta picture may reference any of the discarded pictures.
+                if (needsKeyframe && !MonitorVideoReader.HasNal(frame, 5)) return;
+                needsKeyframe = false;
+                pending.Enqueue(Tuple.Create(frame, timestamp));
+                if (ready.CurrentCount == 0) ready.Release();
+            }
+        }
+
+        internal async Task Send(Func<byte[], long, Task> send, CancellationToken cancellation)
+        {
+            while (true)
+            {
+                await ready.WaitAsync(cancellation).ConfigureAwait(false);
+                while (!cancellation.IsCancellationRequested)
+                {
+                    Tuple<byte[], long> frame;
+                    lock (pending)
+                    {
+                        if (pending.Count == 0) break;
+                        frame = pending.Dequeue();
+                    }
+                    await send(frame.Item1, frame.Item2).ConfigureAwait(false);
+                }
+            }
+        }
+
+        public void Dispose() { ready.Dispose(); }
+    }
+
     public sealed class NativeMonitorEncoder : IDisposable
     {
         Process process;
@@ -84,23 +148,56 @@ namespace Morror
                 // NVENC rejects 128x128 even on RTX 4070. Probe the session's real
                 // dimensions, pixel format and bitrate before considering CPU fallback.
                 var args=new List<string>{"-hide_banner","-loglevel","error","-f","lavfi","-i","color=black:s="+width+"x"+height+":r="+fps,"-frames:v","3","-vf","format=nv12"};
-                args.AddRange(EncoderArguments(codec));args.AddRange(new[]{"-b:v","10M","-g",fps.ToString(),"-bf","0","-f","null","-"});
+                args.AddRange(EncoderArguments(codec));args.AddRange(VideoArguments(width,height,fps));args.AddRange(new[]{"-f","null","-"});
                 CommandResult result=null;
                 try {result=await Commands.RunCancellable(executable,8000,cancellation,args.ToArray()).ConfigureAwait(false);}catch(TimeoutException){}
                 if(result!=null && result.ExitCode==0)return codec;
             }
             throw new IOException("Не найден рабочий H.264-кодировщик NVIDIA/Media Foundation. Обновите драйвер видеокарты и проверьте компоненты мультимедиа Windows.");
         }
-        public Stream Start(string executable,string codec,Rectangle bounds,int width,int height,int fps,bool synthetic=false)
+        static string[] CaptureArguments(MonitorCapture capture, int fps)
+        {
+            return new[]{"-init_hw_device","d3d11va=monitor:"+capture.Adapter,"-filter_hw_device","monitor",
+                "-filter_complex","ddagrab=output_idx="+capture.Output+":framerate="+fps};
+        }
+        internal static async Task<MonitorCapture> SelectCapture(string executable,string codec,ScreenChoice screen,int width,int height,int fps)
+        {
+            if (codec != "nvenc" || screen.Bounds.Width != width || screen.Bounds.Height != height) return null;
+            var capture = MonitorCapture.Find(screen);
+            if (capture == null) return null;
+            var args = new List<string>{"-hide_banner","-loglevel","error","-nostdin"};
+            args.AddRange(CaptureArguments(capture,fps));
+            args.AddRange(EncoderArguments(codec));
+            args.AddRange(VideoArguments(width,height,fps));
+            args.AddRange(new[]{"-frames:v","5","-f","null","-"});
+            try
+            {
+                var result = await Commands.Run(executable,2500,args.ToArray()).ConfigureAwait(false);
+                return result.ExitCode == 0 ? capture : null;
+            }
+            catch (TimeoutException) { return null; }
+        }
+        internal Stream Start(string executable,string codec,Rectangle bounds,int width,int height,int fps,bool synthetic,MonitorCapture capture)
         {
             var args=new List<string>{"-hide_banner","-loglevel","warning","-nostdin"};
-            if(synthetic)args.AddRange(new[]{"-re","-f","lavfi","-i","testsrc2=s="+width+"x"+height+":r="+fps});
-            else args.AddRange(new[]{"-thread_queue_size","2","-rtbufsize","128M","-probesize","32","-analyzeduration","0","-f","gdigrab","-framerate",fps.ToString(),"-draw_mouse","1","-offset_x",bounds.X.ToString(),"-offset_y",bounds.Y.ToString(),"-video_size",bounds.Width+"x"+bounds.Height,"-i","desktop"});
-            args.AddRange(new[]{"-an","-vf",(bounds.Width==width&&bounds.Height==height?"":"scale="+width+":"+height+":flags=fast_bilinear,")+"format=nv12"});args.AddRange(EncoderArguments(codec));
-            args.AddRange(new[]{"-b:v","10M","-g",fps.ToString(),"-bf","0","-bsf:v","h264_metadata=aud=insert","-flush_packets","1","-fps_mode","passthrough","-f","h264","pipe:1"});
+            if(capture!=null)args.AddRange(CaptureArguments(capture,fps));
+            else
+            {
+                if(synthetic)args.AddRange(new[]{"-re","-f","lavfi","-i","testsrc2=s="+width+"x"+height+":r="+fps});
+                else args.AddRange(new[]{"-thread_queue_size","1","-probesize","32","-analyzeduration","0","-f","gdigrab","-framerate",fps.ToString(),"-draw_mouse","1","-offset_x",bounds.X.ToString(),"-offset_y",bounds.Y.ToString(),"-video_size",bounds.Width+"x"+bounds.Height,"-i","desktop"});
+                args.AddRange(new[]{"-vf",(bounds.Width==width&&bounds.Height==height?"":"scale="+width+":"+height+":flags=fast_bilinear,")+"format=nv12"});
+            }
+            args.Add("-an");args.AddRange(EncoderArguments(codec));
+            args.AddRange(VideoArguments(width,height,fps));
+            args.AddRange(new[]{"-bsf:v","dump_extra","-flush_packets","1","-fps_mode","passthrough","-f","avi","pipe:1"});
             process=new Process{StartInfo=Commands.StartInfo(executable,args)};
             process.ErrorDataReceived+=(s,e)=>{if(e.Data!=null)LastError=e.Data.Length>1024?e.Data.Substring(0,1024):e.Data;};
             process.Start();process.BeginErrorReadLine();return process.StandardOutput.BaseStream;
+        }
+        static string[] VideoArguments(int width,int height,int fps)
+        {
+            int bitrate = (int)Math.Min(18000, Math.Max(2000, (long)width * height * fps / 20000));
+            return new[]{"-flags","+low_delay","-b:v",bitrate+"k","-bufsize",Math.Max(200,bitrate/8)+"k","-g",(fps/2).ToString(),"-bf","0"};
         }
         public void Dispose()
         {
@@ -120,6 +217,7 @@ namespace Morror
         readonly ScreenChoice screen;
         readonly int width,height,fps;
         readonly bool audioEnabled,synthetic;
+        readonly MonitorCapture capture;
         TcpClient client;
         Task runner;
         readonly TaskCompletionSource<string> completion=new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -133,7 +231,9 @@ namespace Morror
         public bool HasClient {get{return authenticated;}}
         public string Status {get{lock(gate)return status;}}
         public NativeMonitorServer(string executable,string codec,ScreenChoice screen,int width,int height,int fps,bool audioEnabled,Func<ScreenTouchFrame,Task> touch,Func<Task> release,bool synthetic=false)
-        {this.executable=executable;this.codec=codec;this.screen=screen;this.width=width;this.height=height;this.fps=fps;this.audioEnabled=audioEnabled;this.touch=touch;this.release=release;this.synthetic=synthetic;}
+            : this(executable,codec,screen,width,height,fps,audioEnabled,touch,release,synthetic,null) { }
+        internal NativeMonitorServer(string executable,string codec,ScreenChoice screen,int width,int height,int fps,bool audioEnabled,Func<ScreenTouchFrame,Task> touch,Func<Task> release,bool synthetic,MonitorCapture capture)
+        {this.executable=executable;this.codec=codec;this.screen=screen;this.width=width;this.height=height;this.fps=fps;this.audioEnabled=audioEnabled;this.touch=touch;this.release=release;this.synthetic=synthetic;this.capture=capture;}
         static void PreventHandleInheritance(Socket socket)
         {
             if(!SetHandleInformation(socket.Handle,1,0))throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
@@ -176,7 +276,8 @@ namespace Morror
             using(var encoder=new NativeMonitorEncoder())
             using(var writer=new SemaphoreSlim(1,1))
             {
-                connection.NoDelay=true;connection.SendTimeout=5000;connection.ReceiveTimeout=15000;
+                connection.NoDelay = true;
+                connection.SendBufferSize = 64 * 1024;
                 var stream=connection.GetStream();
                 using(var timeout=CancellationTokenSource.CreateLinkedTokenSource(session.Token))
                 {
@@ -196,42 +297,80 @@ namespace Morror
                     await writer.WaitAsync(session.Token).ConfigureAwait(false);
                     try
                     {
-                        byte[] header=MonitorWire.Header(type,body.Length,pts);
-                        Task write=stream.WriteAsync(header,0,header.Length,session.Token);
-                        if(await Task.WhenAny(write,Task.Delay(5000,session.Token)).ConfigureAwait(false)!=write){session.Cancel();throw new IOException("Телефон перестал принимать данные.");}await write.ConfigureAwait(false);
-                        write=stream.WriteAsync(body,0,body.Length,session.Token);
-                        if(await Task.WhenAny(write,Task.Delay(5000,session.Token)).ConfigureAwait(false)!=write){session.Cancel();throw new IOException("Телефон перестал принимать видео.");}await write.ConfigureAwait(false);
+                        using (var deadline = CancellationTokenSource.CreateLinkedTokenSource(session.Token))
+                        {
+                            deadline.CancelAfter(2500);
+                            using (deadline.Token.Register(() => connection.Close()))
+                            {
+                                byte[] header=MonitorWire.Header(type,body.Length,pts);
+                                await stream.WriteAsync(header, 0, header.Length, deadline.Token).ConfigureAwait(false);
+                                await stream.WriteAsync(body, 0, body.Length, deadline.Token).ConfigureAwait(false);
+                            }
+                        }
                     }
                     finally{writer.Release();}
                 };
                 byte[] hello=Encoding.UTF8.GetBytes(SecondScreenProtocol.Json().Serialize(new{width=width,height=height,fps=fps,sampleRate=audio==null?48000:audio.SampleRate,channels=2,floatAudio=true}));
-                await send(0,hello,0).ConfigureAwait(false);
+                try { await send(0,hello,0).ConfigureAwait(false); }
+                catch { if (audio != null) audio.Dispose(); throw; }
                 var stopwatch=Stopwatch.StartNew();
                 Task controls=Controls(stream,session.Token);
                 Task audioTask=audio==null?Task.FromResult(0):audio.Run((bytes)=>send(2,bytes,stopwatch.ElapsedTicks*1000000/Stopwatch.Frequency),session.Token);
-                Exception failure=null;
-                try
+                using (var queue = new MonitorVideoQueue())
                 {
-                    Stream video=encoder.Start(executable,codec,screen.Bounds,width,height,fps,synthetic);
-                    lock(gate)status="Монитор подключён · "+width+" × "+height+" · "+fps+" FPS · "+(codec=="mf-sw"?"программное кодирование":"аппаратное кодирование");
-                    var parser=new H264AccessUnits();var buffer=new byte[32768];
-                    while(!session.IsCancellationRequested)
+                    Task sendVideo = queue.Send((frame, pts) => send(1, frame, pts), session.Token);
+                    Exception failure = null;
+                    try
                     {
-                        Task<int> read=video.ReadAsync(buffer,0,buffer.Length,session.Token);
-                        Task completed=await Task.WhenAny(read,controls,Task.Delay(12000,session.Token)).ConfigureAwait(false);
-                        if(completed==controls){await controls.ConfigureAwait(false);throw new EndOfStreamException("Телефон отключён.");}
-                        if(completed!=read)throw new IOException("Кодировщик не выдаёт кадры. "+encoder.LastError);
-                        int count=await read.ConfigureAwait(false);if(count==0)throw new IOException("Кодировщик остановлен. "+encoder.LastError);
-                        foreach(byte[] frame in parser.Push(buffer,count))await send(1,frame,stopwatch.ElapsedTicks*1000000/Stopwatch.Frequency).ConfigureAwait(false);
+                        Stream video = encoder.Start(executable, codec, screen.Bounds, width, height, fps, synthetic, capture);
+                        lock (gate) status = "Монитор подключён · " + width + " × " + height + " · " + fps + " FPS · " + (codec == "mf-sw" ? "программное кодирование" : "аппаратное кодирование");
+                        await ReadVideo(encoder, video, queue, controls, sendVideo, stopwatch, session.Token).ConfigureAwait(false);
+                    }
+                    catch (Exception error) { failure = error; }
+                    session.Cancel();
+                    encoder.Dispose();
+                    try { await Task.WhenAll(sendVideo, controls, audioTask).ConfigureAwait(false); } catch (Exception) { }
+                    if (audio != null) audio.Dispose();
+                    await release().ConfigureAwait(false);
+                    lock (gate) status = failure == null ? "Телефон отключён." : "Передача остановлена: " + failure.Message;
+                }
+            }
+        }
+
+        static async Task ReadVideo(NativeMonitorEncoder encoder, Stream video, MonitorVideoQueue queue, Task controls,
+            Task sendVideo, Stopwatch clock, CancellationToken cancellation)
+        {
+            using (var buffered = new BufferedStream(video, 65536))
+            {
+                var reader = new MonitorVideoReader(buffered);
+                while (!cancellation.IsCancellationRequested)
+                {
+                    using (var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation))
+                    {
+                        Task<byte[]> read = reader.ReadFrame(cancellation);
+                        Task completed = await Task.WhenAny(read, controls, sendVideo, Task.Delay(5000, deadline.Token)).ConfigureAwait(false);
+                        deadline.Cancel();
+                        if (completed == read)
+                        {
+                            byte[] frame;
+                            try { frame = await read.ConfigureAwait(false); }
+                            catch (EndOfStreamException error) { throw new IOException("Кодировщик остановлен. " + encoder.LastError, error); }
+                            queue.Add(frame, clock.ElapsedTicks * 1000000 / Stopwatch.Frequency);
+                            continue;
+                        }
+
+                        // Closing the encoder's pipe interrupts a pending Windows pipe read.
+                        encoder.Dispose();
+                        try { await read.ConfigureAwait(false); } catch (Exception) { }
+                        cancellation.ThrowIfCancellationRequested();
+                        if (completed == controls || completed == sendVideo)
+                        {
+                            await completed.ConfigureAwait(false);
+                            throw new EndOfStreamException("Телефон отключён.");
+                        }
+                        throw new IOException("Кодировщик не выдаёт кадры. " + encoder.LastError);
                     }
                 }
-                catch(Exception e){failure=e;}
-                session.Cancel();encoder.Dispose();
-                try{await controls.ConfigureAwait(false);}catch(Exception){}
-                try{await audioTask.ConfigureAwait(false);}catch(Exception){}
-                if(audio!=null)audio.Dispose();
-                await release().ConfigureAwait(false);
-                lock(gate)status=failure==null?"Телефон отключён. Ожидаем подключение…":"Передача остановлена: "+failure.Message;
             }
         }
         async Task Controls(Stream stream,CancellationToken cancellation)
@@ -243,7 +382,7 @@ namespace Morror
                 byte[] packet;
                 using(var heartbeat=CancellationTokenSource.CreateLinkedTokenSource(cancellation))
                 {
-                    heartbeat.CancelAfter(6000);
+                    heartbeat.CancelAfter(3000);
                     // NetworkStream.ReadAsync on .NET Framework does not reliably abort
                     // an already pending read from cancellation alone.
                     using(heartbeat.Token.Register(()=>stream.Close()))

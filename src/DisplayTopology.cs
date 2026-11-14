@@ -11,6 +11,7 @@ namespace Morror
     // target. Legacy ChangeDisplaySettingsEx can reject a detached IDD source.
     internal static class DisplayTopology
     {
+        const uint SuppliedConfig = 0x20, Validate = 0x40, ApplyConfig = 0x80, SaveToDatabase = 0x200;
         [StructLayout(LayoutKind.Sequential)] internal struct Luid
         {public uint low;public int high;}
         [StructLayout(LayoutKind.Sequential)] internal struct Rational
@@ -104,19 +105,26 @@ namespace Morror
             active.Add(path);
             return new Snapshot{paths=active.ToArray(),modes=modes.ToArray()};
         }
-        static int Apply(Snapshot snapshot)
+        static int Apply(Snapshot snapshot, bool persist = false)
         {
-            int result=SetDisplayConfig((uint)snapshot.paths.Length,snapshot.paths,(uint)snapshot.modes.Length,snapshot.modes,0x40|0x20);
+            int result=SetDisplayConfig((uint)snapshot.paths.Length,snapshot.paths,(uint)snapshot.modes.Length,snapshot.modes,Validate|SuppliedConfig);
             if(result!=0)return result;
-            return SetDisplayConfig((uint)snapshot.paths.Length,snapshot.paths,(uint)snapshot.modes.Length,snapshot.modes,0x80|0x20);
+            uint flags = ApplyConfig | SuppliedConfig | (persist ? SaveToDatabase : 0);
+            return SetDisplayConfig((uint)snapshot.paths.Length,snapshot.paths,(uint)snapshot.modes.Length,snapshot.modes,flags);
         }
-        internal static int Detach(string device)
+        internal static int Detach(IEnumerable<string> devices)
         {
-            var snapshot=Read();
-            var paths=snapshot.paths.Where(p=>!string.Equals(Name(p),device,StringComparison.OrdinalIgnoreCase)).ToArray();
-            if(paths.Length==snapshot.paths.Length)return 0;
-            if(paths.Length==0)throw new IOException("Нельзя отключить единственный активный дисплей Windows.");
-            return Apply(new Snapshot{paths=paths,modes=snapshot.modes});
+            var names = new HashSet<string>(devices, StringComparer.OrdinalIgnoreCase);
+            var snapshot = CreateDetachment(Read(), path => names.Contains(Name(path)));
+            return snapshot == null ? 0 : Apply(snapshot, true);
+        }
+
+        internal static Snapshot CreateDetachment(Snapshot active, Func<DisplayPath, bool> detach)
+        {
+            var remaining = active.paths.Where(path => !detach(path)).ToArray();
+            if (remaining.Length == active.paths.Length) return null;
+            if (remaining.Length == 0) throw new IOException("Нельзя отключить единственный активный дисплей Windows.");
+            return new Snapshot { paths = remaining, modes = active.modes };
         }
         [DllImport("user32.dll")]static extern int GetDisplayConfigBufferSizes(uint flags,out uint paths,out uint modes);
         [DllImport("user32.dll")]static extern int QueryDisplayConfig(uint flags,ref uint pathCount,[Out]DisplayPath[] paths,ref uint modeCount,[Out]DisplayMode[] modes,IntPtr topology);

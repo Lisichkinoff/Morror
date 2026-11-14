@@ -9,13 +9,30 @@
    <ComboBox x:Name="MonitorTransport" SelectedIndex="0" AutomationProperties.Name="Подключение монитора"><ComboBoxItem Content="USB · кабель с передачей данных"/><ComboBoxItem Content="Wi-Fi · сопряжение по QR-коду"/></ComboBox>
    <TextBlock x:Name="MonitorConnectionHint" Foreground="#9B9BAE" FontSize="13" Margin="0,9,0,12"/>
    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><ComboBox x:Name="MonitorDevices" DisplayMemberPath="Label" AutomationProperties.Name="Телефон для монитора"/><Button x:Name="MonitorRefresh" Grid.Column="1" Content="Обновить" Padding="12,8" Margin="8,0,0,0"/></Grid>
-   <Button x:Name="MonitorQr" Content="Подключить телефон по QR-коду" Margin="0,12,0,0"/>
+   <Button x:Name="MonitorQr" Content="Беспроводная отладка · QR или код" Margin="0,12,0,0"/>
+   <Expander x:Name="MonitorApk" Header="Скачать Morror Монитор на Android по QR-коду" Margin="0,12,0,0">
+    <StackPanel Margin="0,12,0,0">
+     <TextBlock Text="Выберите Android в списке и нажмите «Установить» или отсканируйте код обычной камерой телефона. Для скачивания до сопряжения выберите адрес ПК в общей сети." Foreground="#C8BDDF" FontSize="13"/>
+     <Grid Margin="0,10,0,0">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <ComboBox x:Name="MonitorApkNetwork" DisplayMemberPath="Label" AutomationProperties.Name="Способ скачивания APK"/>
+      <Button x:Name="MonitorApkRefresh" Grid.Column="1" Content="Обновить" Padding="12,8" Margin="8,0,0,0"/>
+     </Grid>
+     <Button x:Name="MonitorApkInstall" Content="Установить на подключённый Android" Visibility="Collapsed" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+     <Button x:Name="MonitorApkFirewall" Content="Разрешить скачивание в Windows" Visibility="Collapsed" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+     <Border x:Name="MonitorApkCode" Visibility="Collapsed" HorizontalAlignment="Left" Background="White" CornerRadius="8" Margin="0,10,0,0" Padding="5">
+      <Image x:Name="MonitorApkQrImage" Width="222" Height="222" AutomationProperties.Name="QR-код для скачивания APK" RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+     </Border>
+     <TextBlock x:Name="MonitorApkStatus" Foreground="#C8BDDF" FontSize="12" Margin="0,8,0,0"/>
+    </StackPanel>
+   </Expander>
   </StackPanel></Border>
   <Border Style="{DynamicResource Card}" Padding="18" Margin="0,14,0,0"><StackPanel>
    <TextBlock Text="Компонент дополнительного экрана" FontSize="18" FontWeight="SemiBold"/>
    <TextBlock x:Name="MonitorDriverStatus" Foreground="#9B9BAE" FontSize="13" Margin="0,9,0,12"/>
    <Button x:Name="MonitorInstallDriver" Content="Установить компонент монитора · права администратора"/>
-   <TextBlock Text="Подписанный Virtual Display Driver включён в сборку. Основной физический экран не меняется. Android-клиент Morror будет установлен на выбранный телефон при запуске." Foreground="#9B9BAE" FontSize="12" Margin="0,9,0,0"/>
+   <Button x:Name="MonitorHideDriver" Content="Скрыть виртуальный монитор" Visibility="Collapsed" Margin="0,8,0,0"/>
+   <TextBlock Text="Подписанный Virtual Display Driver включён в сборку. При запуске второго экрана Morror также устанавливает Android-клиент на выбранный телефон через ADB." Foreground="#9B9BAE" FontSize="12" Margin="0,9,0,0"/>
   </StackPanel></Border>
   <Border Style="{DynamicResource Card}" Padding="18" Margin="0,14,0,0"><StackPanel>
    <TextBlock Text="Изображение и управление" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12"/>

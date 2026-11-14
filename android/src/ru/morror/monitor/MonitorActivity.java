@@ -41,9 +41,10 @@ public final class MonitorActivity extends Activity implements SurfaceHolder.Cal
     private Thread receiver, sender, audioThread, decoderThread;
     private volatile MediaCodec decoder;
     private AudioTrack audio;
-    private int videoWidth, videoHeight, sampleRate, channels;
+    private int videoWidth, videoHeight, videoFps, sampleRate, channels;
     private boolean floatAudio;
     private long sequence;
+    private volatile long videoClockOffsetUs;
     private volatile int decodedFrames, renderedFrames;
     private final Map<Integer,Integer> fingers = new HashMap<>();
     private final ArrayDeque<Control> controls = new ArrayDeque<>();
@@ -91,7 +92,7 @@ public final class MonitorActivity extends Activity implements SurfaceHolder.Cal
         int port=sessionPort; String token=sessionToken;
         if(port<1 || port>65535 || token==null || !token.matches("[a-f0-9]{64}")) return;
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        closed=false; sequence=0;decodedFrames=0;renderedFrames=0; fingers.clear(); synchronized(controls){controls.clear();}
+        closed=false; sequence=0;decodedFrames=0;renderedFrames=0;videoClockOffsetUs=Long.MAX_VALUE; fingers.clear(); synchronized(controls){controls.clear();}
         receiver=new Thread(()->receive(port,token),"Morror video"); receiver.start();
     }
     private void receive(int port,String token) {
@@ -108,9 +109,11 @@ public final class MonitorActivity extends Activity implements SurfaceHolder.Cal
                 if(type==0) {
                     JSONObject hello=new JSONObject(new String(data,"UTF-8")); videoWidth=hello.getInt("width"); videoHeight=hello.getInt("height");
                     if(videoWidth<16 || videoHeight<16 || videoWidth>8192 || videoHeight>8192) throw new IOException("Недопустимое разрешение");
+                    videoFps=Math.max(1,Math.min(60,hello.optInt("fps",30)));
                     sampleRate=hello.optInt("sampleRate",48000); channels=hello.optInt("channels",2); floatAudio=hello.optBoolean("floatAudio",true);
                     runOnUiThread(()->{surface.getHolder().setFixedSize(videoWidth,videoHeight);resize();});
                 } else if(type==1) {
+                    videoClockOffsetUs=Math.min(videoClockOffsetUs,System.nanoTime()/1000-pts);
                     if(decoder==null) configureDecoder(data);
                     if(decoder!=null) decode(data,pts);
                 } else if(type==2) enqueueAudio(data);
@@ -134,26 +137,33 @@ public final class MonitorActivity extends Activity implements SurfaceHolder.Cal
     private void configureDecoder(byte[] data) throws Exception {
         byte[] sps=nal(data,7),pps=nal(data,8); if(sps==null || pps==null) return;
         MediaFormat f=MediaFormat.createVideoFormat("video/avc",videoWidth,videoHeight);
-        f.setByteBuffer("csd-0",ByteBuffer.wrap(sps)); f.setByteBuffer("csd-1",ByteBuffer.wrap(pps)); f.setInteger("max-input-size",4*1024*1024); f.setInteger("priority",0); f.setInteger("low-latency",1);
+        f.setByteBuffer("csd-0",ByteBuffer.wrap(sps)); f.setByteBuffer("csd-1",ByteBuffer.wrap(pps)); f.setInteger("max-input-size",4*1024*1024); f.setInteger("priority",0);
+        if(Build.VERSION.SDK_INT>=30) f.setInteger(MediaFormat.KEY_LOW_LATENCY,1);
         MediaCodec codec=MediaCodec.createDecoderByType("video/avc");
         try {codec.configure(f,surface.getHolder().getSurface(),null,0);codec.start();}
         catch(Exception error){codec.release();throw error;}
         decoder=codec;decoderThread=new Thread(()->drainDecoder(codec),"Morror decoder");decoderThread.start();
     }
     private void decode(byte[] data,long pts) throws Exception {
-        int slot=decoder.dequeueInputBuffer(50000);
+        int slot=decoder.dequeueInputBuffer(150000);
         if(slot>=0) { ByteBuffer b=decoder.getInputBuffer(slot); if(b==null || b.capacity()<data.length) throw new IOException("Недостаточный буфер декодера"); b.clear();b.put(data);decoder.queueInputBuffer(slot,0,data.length,pts,0); }
         else throw new IOException("Декодер не успевает. Уменьшите разрешение или FPS на ПК.");
     }
     private void drainDecoder(MediaCodec codec) {
         try {
             MediaCodec.BufferInfo info=new MediaCodec.BufferInfo();boolean first=true;
+            long maxLagUs=Math.max(80000,3000000/videoFps);
             while(!closed && connected && decoder==codec) {
                 int output=codec.dequeueOutputBuffer(info,10000);
                 while(output>=0) {
+                    long pts=info.presentationTimeUs;
                     int next=codec.dequeueOutputBuffer(info,0);
-                    codec.releaseOutputBuffer(output,next<0);decodedFrames++;
-                    if(next<0) {renderedFrames++;if(first){first=false;runOnUiThread(()->status.setVisibility(View.GONE));}}
+                    long now=System.nanoTime();
+                    boolean render=next<0 && (first || now/1000-pts-videoClockOffsetUs<=maxLagUs);
+                    if(render) codec.releaseOutputBuffer(output,now);
+                    else codec.releaseOutputBuffer(output,false);
+                    decodedFrames++;
+                    if(render) {renderedFrames++;if(first){first=false;runOnUiThread(()->status.setVisibility(View.GONE));}}
                     output=next;
                 }
             }
@@ -203,7 +213,7 @@ public final class MonitorActivity extends Activity implements SurfaceHolder.Cal
         long lastStats=android.os.SystemClock.elapsedRealtime();
         try { while(!closed && connected) {
             Control packet;
-            synchronized(controls) { if(controls.isEmpty()) controls.wait(1000);packet=controls.pollFirst(); }
+            synchronized(controls) { if(controls.isEmpty()) controls.wait(750);packet=controls.pollFirst(); }
             if(packet==null) {out.writeInt(9);out.writeByte(17);out.writeLong(0);}
             else {out.writeInt(9+packet.body.length);out.writeByte(packet.kind);out.writeLong(0);out.write(packet.body);}
             long now=android.os.SystemClock.elapsedRealtime();

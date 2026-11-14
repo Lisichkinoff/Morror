@@ -9,5 +9,6 @@ $sources=Get-ChildItem -LiteralPath (Join-Path $projectRoot 'src') -Filter '*.cs
 $output=Join-Path $projectRoot 'test-output\Morror.NativeResolutionSmoke.exe'
 & $compiler /nologo /target:exe /platform:x64 /main:NativeResolutionSmoke /utf8output ("/out:"+$output) $references $sources (Join-Path $projectRoot 'tests\NativeResolutionSmoke.cs')
 if($LASTEXITCODE -ne 0){throw 'Display smoke compilation failed'}
-& $output $Modes
+$ffmpeg=Get-ChildItem (Join-Path $projectRoot 'tools\native-monitor\ffmpeg') -Filter ffmpeg.exe -Recurse -File | Select-Object -First 1 -ExpandProperty FullName
+& $output $ffmpeg $Modes
 if($LASTEXITCODE -ne 0){throw 'Display smoke failed'}

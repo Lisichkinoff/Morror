@@ -1,12 +1,33 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Globalization;
 using System.Threading.Tasks;
 
 namespace Morror
 {
     public static class AndroidMonitorClient
     {
+        internal static async Task<int> OpenDownloadTunnel(string adb, string serial, int hostPort)
+        {
+            var result = await Commands.Run(adb, 8000, "-s", serial, "reverse", "--no-rebind", "tcp:0", "tcp:" + hostPort);
+            int phonePort;
+            if (result.ExitCode != 0 || !int.TryParse(result.Output.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out phonePort) ||
+                phonePort < 1 || phonePort > 65535)
+                throw new IOException("Не удалось открыть канал скачивания. Переподключите телефон и разрешите отладку.");
+            return phonePort;
+        }
+
+        internal static async Task CloseDownloadTunnel(string adb, string serial, int phonePort)
+        {
+            try
+            {
+                var result = await Commands.Run(adb, 5000, "-s", serial, "reverse", "--remove", "tcp:" + phonePort);
+                if (result.ExitCode != 0) System.Diagnostics.Trace.WriteLine(result.Combined);
+            }
+            catch (Exception error) { System.Diagnostics.Trace.WriteLine(error); }
+        }
+
         public static async Task Install(string adb,string serial,string apk)
         {
             CommandResult result;

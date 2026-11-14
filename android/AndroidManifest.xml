@@ -1,7 +1,7 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="ru.morror.monitor" android:versionCode="15" android:versionName="0.9.2">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="ru.morror.monitor" android:versionCode="18" android:versionName="0.9.3">
  <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35"/>
  <uses-permission android:name="android.permission.INTERNET"/>
- <application android:label="Morror Монитор" android:theme="@android:style/Theme.Material.NoActionBar" android:allowBackup="false" android:supportsRtl="true">
+ <application android:label="Morror Монитор" android:icon="@mipmap/ic_monitor" android:roundIcon="@mipmap/ic_monitor" android:theme="@android:style/Theme.Material.NoActionBar" android:allowBackup="false" android:supportsRtl="true">
   <activity android:name=".MonitorActivity" android:exported="true" android:screenOrientation="sensorLandscape" android:configChanges="orientation|screenSize|keyboardHidden" android:launchMode="singleTask">
    <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
   </activity>

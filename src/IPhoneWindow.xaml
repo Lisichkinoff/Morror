@@ -1,0 +1,36 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Morror — экран iPhone" Width="620" Height="760" MinWidth="420" MinHeight="440"
+        WindowStartupLocation="CenterScreen" Background="#22232D" Foreground="#F4F3FA" FontFamily="Segoe UI" FontSize="14">
+  <Grid Margin="22">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+    <StackPanel>
+      <TextBlock Text="Трансляция экрана iPhone" FontSize="25" FontWeight="SemiBold" Margin="0,0,0,16"/>
+      <ComboBox x:Name="Transport" SelectedIndex="0" AutomationProperties.Name="Подключение iPhone">
+        <ComboBoxItem Content="USB · кабель"/><ComboBoxItem Content="Wi-Fi · AirPlay"/>
+      </ComboBox>
+      <TextBlock x:Name="Instructions" TextWrapping="Wrap" Foreground="#C8BDDF" Margin="0,10,0,14"/>
+    </StackPanel>
+    <Grid x:Name="DeviceRow" Grid.Row="1" Margin="0,0,0,12">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <ComboBox x:Name="Devices" DisplayMemberPath="Label" AutomationProperties.Name="Выбранный iPhone"/>
+      <Button x:Name="Refresh" Grid.Column="1" Content="Обновить" Margin="8,0,0,0"/>
+    </Grid>
+    <Border Grid.Row="2" Background="#171820" CornerRadius="10" ClipToBounds="True">
+      <Grid x:Name="Preview">
+        <TextBlock Text="Здесь появится экран iPhone" HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Foreground="#9B9BAE" TextWrapping="Wrap" Margin="10"/>
+      </Grid>
+    </Border>
+    <StackPanel Grid.Row="3" Margin="0,12,0,0">
+      <TextBlock x:Name="Status" TextWrapping="Wrap" Margin="0,0,0,10" AutomationProperties.LiveSetting="Polite"/>
+      <WrapPanel>
+        <Button x:Name="Driver" Content="Настроить USB в Windows" Margin="0,0,8,5"/>
+        <Button x:Name="Start" Content="Начать трансляцию" Background="#6E58BD" BorderBrush="#9A87E5" Margin="0,0,8,5"/>
+        <Button x:Name="Stop" Content="Остановить" IsEnabled="False" Margin="0,0,0,5"/>
+      </WrapPanel>
+    </StackPanel>
+  </Grid>
+</Window>

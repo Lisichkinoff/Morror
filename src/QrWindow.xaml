@@ -4,17 +4,30 @@
   <Border Background="#252631" BorderBrush="#504566" BorderThickness="1"><Grid><Grid.RowDefinitions><RowDefinition Height="42"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
     <Grid Margin="20,0,8,0"><TextBlock Text="◈   morror / Wi-Fi" Foreground="#C6B5E8" VerticalAlignment="Center"/><Button x:Name="QrTitleClose" Style="{DynamicResource CaptionButton}" Content="&#xE8BB;" HorizontalAlignment="Right" AutomationProperties.Name="Закрыть QR-код"/></Grid>
     <ScrollViewer Grid.Row="1" Margin="28,12,28,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel>
-      <TextBlock Text="Подключение по QR-коду" FontSize="26" FontWeight="SemiBold"/>
+      <TextBlock Text="Беспроводная отладка Android" FontSize="26" FontWeight="SemiBold"/>
       <TextBlock Text="Android 11+ · одна сеть с ПК · сканер беспроводной отладки" Foreground="#9B9BAE" Margin="0,8,0,22"/>
       <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="260"/><ColumnDefinition Width="26"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
         <Border Background="White" CornerRadius="12" Width="260" Height="260"><Grid><Image x:Name="QrImage" Width="240" Height="240" RenderOptions.BitmapScalingMode="NearestNeighbor" AutomationProperties.Name="QR-код для сопряжения Android"/><TextBlock x:Name="QrFinished" Text="✓" FontSize="72" Foreground="#7760B0" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center"/></Grid></Border>
         <StackPanel Grid.Column="2" VerticalAlignment="Center">
           <TextBlock Text="НА ТЕЛЕФОНЕ" FontSize="14" FontWeight="SemiBold" Foreground="#AA96D3" Margin="0,0,0,12"/>
           <TextBlock Text="1. Откройте настройки" FontWeight="SemiBold" FontSize="19"/><TextBlock Text="Для разработчиков → Беспроводная отладка." Foreground="#9B9BAE" LineHeight="25" Margin="0,6,0,17"/>
-          <TextBlock Text="2. Выберите QR-сканер" FontWeight="SemiBold" FontSize="19"/><TextBlock Text="«Подключить устройство с помощью QR-кода»." Foreground="#9B9BAE" LineHeight="25" Margin="0,6,0,17"/>
+          <TextBlock Text="2. Выберите QR-сканер" FontWeight="SemiBold" FontSize="19"/><TextBlock Text="«Подключить устройство с помощью QR-кода». Обычная камера может принять этот код за сеть Wi-Fi." Foreground="#9B9BAE" LineHeight="25" Margin="0,6,0,17"/>
           <TextBlock Text="3. Дождитесь подключения" FontWeight="SemiBold" FontSize="19"/><TextBlock Text="Наведите сканер на код и оставьте окно открытым." Foreground="#9B9BAE" LineHeight="25" Margin="0,6,0,0"/>
         </StackPanel>
       </Grid>
+      <Expander x:Name="QrManual" Header="Подключиться по коду или IP:порту" Margin="0,18,0,0">
+        <StackPanel Margin="0,12,0,8">
+          <TextBlock Text="IP:порт с главной страницы беспроводной отладки" Foreground="#C8BDDF"/>
+          <TextBox x:Name="QrConnectAddress" Margin="0,8,0,8" AutomationProperties.Name="Адрес с главной страницы беспроводной отладки" ToolTip="IP:порт с главной страницы беспроводной отладки"/>
+          <Button x:Name="QrConnect" Content="Подключить по IP:порту" HorizontalAlignment="Left"/>
+          <TextBlock Text="Для первого подключения откройте на телефоне «Подключить с помощью кода сопряжения». Введите IP:порт из этого окна и шестизначный код. Адрес с главной страницы выше можно указать заранее, если телефон не обнаруживается автоматически." Margin="0,16,0,6" Foreground="#C8BDDF"/>
+          <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="160"/></Grid.ColumnDefinitions>
+            <StackPanel><TextBlock Text="IP:порт сопряжения" Margin="0,0,0,4"/><TextBox x:Name="QrPairAddress" AutomationProperties.Name="Адрес сопряжения"/></StackPanel>
+            <StackPanel Grid.Column="1" Margin="8,0,0,0"><TextBlock Text="Код из 6 цифр" Margin="0,0,0,4"/><PasswordBox x:Name="QrPairCode" MaxLength="6" AutomationProperties.Name="Шестизначный код сопряжения"/></StackPanel>
+          </Grid>
+          <Button x:Name="QrPairManual" Content="Выполнить сопряжение" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+        </StackPanel>
+      </Expander>
     </StackPanel></ScrollViewer>
       <Border Grid.Row="2" Background="#363044" CornerRadius="10" Padding="13,11" Margin="28,17,28,0"><TextBlock x:Name="QrStatus" Text="Подготовка QR-кода…" Foreground="#A99AFF" FontSize="16"/></Border>
       <Grid Grid.Row="3" Margin="28,16,28,24"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="QrCountdown" Foreground="#9891AC" FontSize="15" VerticalAlignment="Center"/><Button x:Name="QrRenew" Grid.Column="1" Content="Новый QR-код" Margin="10,0,8,0"/><Button x:Name="QrClose" Grid.Column="2" Content="Отмена"/></Grid>

@@ -1,6 +1,6 @@
 # Компоненты сторонних разработчиков
 
-Morror использует официальный бинарный пакет **scrcpy 5.0.1** от Genymobile и поставляемые с ним ADB, SDL, FFmpeg и libusb. Файлы движка не изменены. Лицензия scrcpy находится в `runtime/LICENSE.txt` (Apache License 2.0).
+Morror использует официальный бинарный пакет **scrcpy 5.0.1** от Genymobile и поставляемые с ним ADB, SDL, FFmpeg и libusb. При сборке Morror заменяет ресурсы значка в своей копии scrcpy.exe и файл scrcpy.png. Лицензия scrcpy находится в `runtime/LICENSE.txt` (Apache License 2.0).
 
 Morror является отдельной Windows-оболочкой для scrcpy. Захват экрана, звука и управление Android выполняет scrcpy; интерфейс и дополнительные функции Morror разработаны в этом репозитории. Morror не является официальным продуктом Genymobile или авторов scrcpy.
 
@@ -26,7 +26,7 @@ SHA-256: `b12a2c4ee8be317422451fc7dcf8ee20a71b5ea7ef9ad73ddd825a25316227a5`.
 
 При дальнейшем распространении сохраняйте лицензии и уведомления компонентов и соблюдайте условия их распространения. Исходники оболочки Morror находятся в папке `src` этого проекта.
 
-## Нативный дополнительный монитор (0.11.0)
+## Нативный дополнительный монитор
 
 Для ПК → Android отдельно поставляются неизменённые компоненты:
 
@@ -44,6 +44,12 @@ SHA-256: `b12a2c4ee8be317422451fc7dcf8ee20a71b5ea7ef9ad73ddd825a25316227a5`.
 - SHA-256 архива NuGet: `d3fe5c80c742b6a2ef8a31734c06600e2d674806a97f36f4af97b0d2871de309`.
 
 Только для разработки и тестов используется **ZXing.Net 0.16.11** (https://www.nuget.org/packages/ZXing.Net/0.16.11). Он проверяет считывание QR независимым декодером и не поставляется с Morror. SHA-256 тестового пакета: `7d39234d668e558b3d374d18116ed57021d7c0df482801f1e1db4f1db9314ec3`.
+
+## Трансляция iPhone
+
+`runtime/iphone` содержит неизменённые компоненты [iPhoneMirror v1.8.3](https://github.com/RayrenSX/iPhoneMirror/releases/tag/v1.8.3), извлечённые из `iPhoneMirror-v1.8.3-win-x64.zip` с SHA‑256 `97c5ded39a9437069cb24fd4ee59fe9775c1ebcf2700e3fd6305c9e424396bf0`. Отдельный процесс `Morror.iPhone.exe` использует C API движка. Код этой оболочки (`src/IPhoneApp.cs`, `src/IPhoneMirrorDialog.cs`, `src/IPhoneMirrorEngine.cs`, `src/IPhoneWindow.xaml`) распространяется по GPL‑3.0-only вместе с её условиями сборки.
+
+Соответствующие исходники движка, USB-компонентов и конфигурации сборки доступны в [дереве тега v1.8.3](https://github.com/RayrenSX/iPhoneMirror/tree/v1.8.3). Условия и ссылки на исходники AirPlayServer, FFmpeg и их зависимостей поставляются в `runtime/iphone/Wireless/licenses`, а условия USB-компонентов и утилиты установки — в `runtime/iphone/LICENSE`, `runtime/iphone/THIRD_PARTY_NOTICES.md` и `runtime/iphone/licenses`.
 
 ## Установщик
 

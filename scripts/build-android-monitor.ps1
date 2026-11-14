@@ -18,8 +18,15 @@ $classFiles = Get-ChildItem -LiteralPath $classes -Filter '*.class' -Recurse -Fi
 & (Join-Path $jdk 'bin\java.exe') -cp (Join-Path $androidTools 'lib\d8.jar') com.android.tools.r8.D8 --lib $androidJar --min-api 26 --output $dex $classFiles
 if ($LASTEXITCODE -ne 0) { throw 'Ошибка D8.' }
 $unsigned = Join-Path $buildDir 'unsigned.apk'
-& (Join-Path $androidTools 'aapt2.exe') link -I $nativeAndroidJar --manifest (Join-Path $projectRoot 'android\AndroidManifest.xml') -o $unsigned
-if ($LASTEXITCODE -ne 0) { throw 'Ошибка упаковки APK.' }
+$aapt = Join-Path $androidTools 'aapt2.exe'
+# AAPT2 cannot enumerate resource directories through every Windows system code page.
+Push-Location -LiteralPath (Join-Path $projectRoot 'android')
+try {
+    & $aapt compile --dir res -o '..\test-output\android-monitor\resources.zip'
+    if ($LASTEXITCODE -ne 0) { throw 'Ошибка компиляции ресурсов Android.' }
+    & $aapt link -I $nativeAndroidJar --manifest AndroidManifest.xml -o '..\test-output\android-monitor\unsigned.apk' '..\test-output\android-monitor\resources.zip'
+    if ($LASTEXITCODE -ne 0) { throw 'Ошибка упаковки APK.' }
+} finally { Pop-Location }
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [System.IO.Compression.ZipFile]::Open($unsigned,[System.IO.Compression.ZipArchiveMode]::Update)
 try { [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive,(Join-Path $dex 'classes.dex'),'classes.dex') | Out-Null } finally { $archive.Dispose() }

@@ -19,6 +19,7 @@ namespace Morror
         string runtime = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "runtime");
         bool wifi, refreshing, networkBusy, starting, closing, stopRequested, exitRequested, hiddenToTray, trayHintShown, applyingPreset;
         Process mirror;
+        Process iPhoneWindow;
         string activeSerial, activeModel;
         DispatcherTimer timer;
         TrayController tray;
@@ -29,8 +30,19 @@ namespace Morror
         readonly Dictionary<string, DeviceCapabilities> capabilities = new Dictionary<string, DeviceCapabilities>();
         readonly HashSet<string> pendingProfiles = new HashSet<string>();
         readonly CancellationTokenSource profileLifetime = new CancellationTokenSource();
-        public App() : this("Local\\Morror.ShowSettings") { }
-        internal App(string restoreSignalName) { this.restoreSignalName = restoreSignalName; }
+        readonly CancellationTokenSource updateLifetime = new CancellationTokenSource();
+        readonly bool checkForUpdates;
+        readonly string settingsPath;
+        static readonly string[] SelectionSettings = { "Quality", "FrameRate", "KeyboardMode", "StreamPreset" };
+        static readonly string[] ToggleSettings = { "ScreenOff", "Control", "ClipboardSync", "AlwaysOnTop", "AutoTray", "Audio" };
+        AppUpdate availableUpdate;
+        public App() : this("Local\\Morror.ShowSettings", true, StreamSettings.UserPath) { }
+        internal App(string restoreSignalName, bool checkForUpdates = false, string settingsPath = null)
+        {
+            this.restoreSignalName = restoreSignalName;
+            this.checkForUpdates = checkForUpdates;
+            this.settingsPath = settingsPath;
+        }
         T Get<T>(string name) where T : class { return window.FindName(name) as T; }
         string Adb { get { return Path.Combine(runtime, "adb.exe"); } }
         bool Running { get { return mirror != null; } }
@@ -38,22 +50,67 @@ namespace Morror
         [STAThread]
         public static void Main()
         {
-            string[] monitorArgs=Environment.GetCommandLineArgs().Skip(1).ToArray();
-            if(monitorArgs.Length>0 && monitorArgs[0]=="--configure-monitor-mode")
+            string[] args = Environment.GetCommandLineArgs().Skip(1).ToArray();
+            if (args.Length > 0 && args[0] == AppUpdate.ApplyArgument)
+            {
+                AppUpdate.Apply(args);
+                return;
+            }
+            if (args.Length == 4 && args[0] == "--allow-monitor-apk")
+            {
+                try
+                {
+                    Guid id;
+                    System.Net.IPAddress address;
+                    int port;
+                    if (!Guid.TryParseExact(args[1], "N", out id) || !System.Net.IPAddress.TryParse(args[2], out address) ||
+                        !int.TryParse(args[3], out port))
+                        throw new ArgumentException("Недопустимые параметры скачивания APK.");
+                    MonitorApkFirewall.Allow(id.ToString("N"), address, port);
+                }
+                catch (Exception error) { Trace.WriteLine(error); Environment.ExitCode = 1; }
+                return;
+            }
+            if (args.Length == 4 && args[0] == "--monitor-driver-session")
+            {
+                try
+                {
+                    int parent;
+                    long started;
+                    Guid signal;
+                    if (!int.TryParse(args[1], out parent) || !long.TryParse(args[2], out started) || !Guid.TryParseExact(args[3], "N", out signal))
+                        throw new ArgumentException("Недопустимые параметры сеанса монитора.");
+                    VirtualMonitorDriver.RunSessionWorker(parent, started, signal.ToString("N"));
+                }
+                catch (Exception error) { Trace.WriteLine(error); Environment.ExitCode = 1; }
+                return;
+            }
+            if (args.SequenceEqual(new[] { "--hide-idle-monitor" }))
+            {
+                try { VirtualMonitorDriver.SetEnabled(false); }
+                catch (Exception error) { MessageBox.Show(error.Message, "Morror"); Environment.ExitCode = 1; }
+                return;
+            }
+            if(args.Length>0 && args[0]=="--configure-monitor-mode")
             {
                 try
                 {
                     int width,height,fps;
-                    if(monitorArgs.Length!=4||!int.TryParse(monitorArgs[1],out width)||!int.TryParse(monitorArgs[2],out height)||!int.TryParse(monitorArgs[3],out fps))throw new ArgumentException("Недопустимые параметры разрешения.");
+                    if(args.Length!=4||!int.TryParse(args[1],out width)||!int.TryParse(args[2],out height)||!int.TryParse(args[3],out fps))throw new ArgumentException("Недопустимые параметры разрешения.");
                     VirtualMonitorDriver.ConfigureMode(width,height,fps);
                 }
                 catch(Exception error){MessageBox.Show("Не удалось добавить разрешение монитора.\n"+error.Message,"Morror");Environment.ExitCode=1;}
                 return;
             }
-            if (Environment.GetCommandLineArgs().Skip(1).SequenceEqual(new[] { "--install-monitor-driver" }))
+            if (args.SequenceEqual(new[] { "--install-monitor-driver" }))
             {
                 try { VirtualMonitorDriver.InstallBundled(); }
                 catch (Exception error) { MessageBox.Show("Не удалось установить компонент монитора.\n" + error.Message, "Morror"); Environment.ExitCode = 1; }
+                return;
+            }
+            if (AppUpdate.IsInstalling())
+            {
+                MessageBox.Show("Morror обновляется и откроется снова после установки.", "Обновление Morror");
                 return;
             }
             using (var mutex = new Mutex(false, "Local\\Morror.Desktop"))
@@ -66,11 +123,24 @@ namespace Morror
                 }
                 try
                 {
+                    if (AppUpdate.IsInstalling()) return;
                     var application = new Application();
                     application.DispatcherUnhandledException += (s, e) => { MessageBox.Show(e.Exception.Message, "Morror"); e.Handled = true; };
-                    var app = new App();
+                    var app = new App("Local\\Morror.ShowSettings", !args.Contains(AppUpdate.SkipCheckArgument), StreamSettings.UserPath);
                     application.SessionEnding += (s, e) => { app.exitRequested = true; };
-                    app.Initialize(); application.Run(app.window);
+                    app.Initialize();
+                    try { VirtualMonitorDriver.DetachIdleScreens(); }
+                    catch (Exception error)
+                    {
+                        app.Notice("Не удалось отключить оставшийся виртуальный монитор. Подробности в журнале.");
+                        app.AddLog(error.Message);
+                    }
+                    try { application.Run(app.window); }
+                    finally
+                    {
+                        try { VirtualMonitorDriver.DetachIdleScreens(); }
+                        catch (Exception error) { Trace.WriteLine(error); }
+                    }
                 }
                 catch (Exception e) { MessageBox.Show("Не удалось открыть Morror.\n" + e.Message, "Morror"); }
                 finally { mutex.ReleaseMutex(); }
@@ -97,21 +167,30 @@ namespace Morror
             {
                 var decoder = new System.Windows.Media.Imaging.IconBitmapDecoder(stream, System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
                 window.Icon = decoder.Frames.OrderByDescending(frame => frame.PixelWidth).First();
+                Get<Image>("BrandIcon").Source = window.Icon;
             }
             Get<Button>("MinimizeButton").Click += (s, e) => SystemCommands.MinimizeWindow(window);
             Get<Button>("MaximizeButton").Click += (s, e) => { if (window.WindowState == WindowState.Maximized) SystemCommands.RestoreWindow(window); else SystemCommands.MaximizeWindow(window); };
             Get<Button>("CloseButton").Click += (s, e) => window.Close();
+            Get<Button>("DownloadUpdate").Click += async (s, e) => await DownloadUpdateAsync();
+            Get<Button>("LaterUpdate").Click += (s, e) => Get<Border>("UpdateNotice").Visibility = Visibility.Collapsed;
+            Get<TextBlock>("SidebarVersion").Text = "MORROR  /  " + AppVersion.Number;
+            LoadStreamSettings();
             Get<ComboBox>("FrameRate").SelectionChanged += (s, e) => UpdateFrameRateSummary();
-            Get<ComboBox>("Quality").SelectionChanged += (s, e) => { if (!applyingPreset) Get<ComboBox>("StreamPreset").SelectedIndex = 3; };
-            Get<ComboBox>("FrameRate").SelectionChanged += (s, e) => { if (!applyingPreset) Get<ComboBox>("StreamPreset").SelectedIndex = 3; };
+            Get<ComboBox>("Quality").SelectionChanged += (s, e) => VideoSettingChanged();
+            Get<ComboBox>("FrameRate").SelectionChanged += (s, e) => VideoSettingChanged();
             Get<ComboBox>("StreamPreset").SelectionChanged += (s, e) =>
             {
+                if (applyingPreset) return;
                 int preset = Get<ComboBox>("StreamPreset").SelectedIndex;
-                if (preset < 0 || preset > 2) return;
-                applyingPreset = true;
-                Get<ComboBox>("Quality").SelectedIndex = preset == 1 ? 0 : preset == 2 ? 2 : 1;
-                Get<ComboBox>("FrameRate").SelectedIndex = preset == 1 ? 1 : 2;
-                applyingPreset = false;
+                if (preset >= 0 && preset <= 2)
+                {
+                    applyingPreset = true;
+                    Get<ComboBox>("Quality").SelectedIndex = preset == 1 ? 0 : preset == 2 ? 2 : 1;
+                    Get<ComboBox>("FrameRate").SelectedIndex = preset == 1 ? 1 : 2;
+                    applyingPreset = false;
+                }
+                SaveStreamSettings();
             };
             Get<Button>("UsbWifiButton").Click += async (s, e) => await UsbToWifi();
             Get<Button>("KeyboardSettings").Click += async (s, e) =>
@@ -126,11 +205,15 @@ namespace Morror
             };
             Get<Button>("DevicePresetButton").Click += (s, e) =>
             {
+                applyingPreset = true;
                 Get<ComboBox>("Quality").SelectedIndex = Protocol.NativeQuality;
                 Get<ComboBox>("FrameRate").SelectedIndex = 0;
+                Get<ComboBox>("StreamPreset").SelectedIndex = 3;
                 var selected = Get<ComboBox>("Devices").SelectedItem as Device;
                 DeviceCapabilities info;
                 if (selected != null && capabilities.TryGetValue(selected.Serial, out info) && info.ApiLevel > 0) Get<CheckBox>("Audio").IsChecked = info.ApiLevel >= 30;
+                applyingPreset = false;
+                SaveStreamSettings();
                 UpdateFrameRateSummary();
                 Notice("Исходное качество без ограничения FPS: нагрузка и нагрев могут вырасти.");
             };
@@ -145,6 +228,7 @@ namespace Morror
             Get<Button>("StopButton").Click += (s, e) => Stop();
             Get<Button>("TransferButton").Click += (s, e) => OpenTransfer();
             Get<Button>("SecondScreenButton").Click += (s, e) => new SecondScreenDialog(window, Adb, Get<ComboBox>("Devices").SelectedItem as Device).Show();
+            Get<Button>("IPhoneButton").Click += (s, e) => OpenIPhone();
             Get<CheckBox>("Control").Checked += (s, e) => UpdateButtons();
             Get<CheckBox>("Control").Unchecked += (s, e) => UpdateButtons();
             Get<CheckBox>("AlwaysOnTop").Checked += (s, e) => ApplyPin();
@@ -158,8 +242,16 @@ namespace Morror
             };
             window.Closing += (s, e) =>
             {
-                if (!exitRequested && Running && tray != null) { e.Cancel = true; HideToTray(); return; }
-                closing = true; profileLifetime.Cancel(); if (timer != null) timer.Stop(); Stop();
+                if (!exitRequested && (Running || iPhoneWindow != null) && tray != null) { e.Cancel = true; HideToTray(); return; }
+                if (iPhoneWindow != null && !iPhoneWindow.HasExited)
+                {
+                    e.Cancel = true;
+                    iPhoneWindow.Refresh();
+                    if (!iPhoneWindow.CloseMainWindow())
+                        Notice("Закройте окно iPhone перед выходом из Morror.");
+                    return;
+                }
+                closing = true; updateLifetime.Cancel(); profileLifetime.Cancel(); if (timer != null) timer.Stop(); Stop();
             };
             window.Closed += (s, e) =>
             {
@@ -168,21 +260,195 @@ namespace Morror
                 if (tray != null) tray.Dispose();
             };
             InitializeTray();
+            ApplyPin();
+            UpdateButtons();
+            Get<ComboBox>("KeyboardMode").SelectionChanged += (s, e) => SaveStreamSettings();
+            foreach (string name in ToggleSettings)
+            {
+                Get<CheckBox>(name).Checked += (s, e) => SaveStreamSettings();
+                Get<CheckBox>(name).Unchecked += (s, e) => SaveStreamSettings();
+            }
+            if (checkForUpdates) window.Loaded += async (s, e) => await CheckForUpdatesAsync();
             window.Loaded += async (s, e) =>
             {
                 if (!File.Exists(Adb) || !File.Exists(Path.Combine(runtime, "scrcpy.exe")) || !File.Exists(Path.Combine(runtime, "scrcpy-server")))
                 { Notice("Не найдены компоненты трансляции. Распакуйте всю папку Morror из архива рядом с Morror.exe."); return; }
                 await Refresh();
+                if (closing) return;
                 timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
                 timer.Tick += async (ts, te) => await Refresh(); timer.Start();
             };
         }
 
+        void VideoSettingChanged()
+        {
+            if (applyingPreset) return;
+            var preset = Get<ComboBox>("StreamPreset");
+            if (preset.SelectedIndex != 3) preset.SelectedIndex = 3;
+            else SaveStreamSettings();
+        }
+
+        void LoadStreamSettings()
+        {
+            if (settingsPath == null) return;
+            try
+            {
+                var values = StreamSettings.Load(settingsPath);
+                foreach (string name in SelectionSettings)
+                {
+                    var control = Get<ComboBox>(name);
+                    object value;
+                    if (values.TryGetValue(name, out value) && value is int && (int)value >= 0 && (int)value < control.Items.Count)
+                        control.SelectedIndex = (int)value;
+                }
+                foreach (string name in ToggleSettings)
+                {
+                    object value;
+                    if (values.TryGetValue(name, out value) && value is bool) Get<CheckBox>(name).IsChecked = (bool)value;
+                }
+                var preset = Get<ComboBox>("StreamPreset");
+                int index = preset.SelectedIndex;
+                if (index < 3 && (Get<ComboBox>("Quality").SelectedIndex != (index == 1 ? 0 : index == 2 ? 2 : 1) ||
+                    Get<ComboBox>("FrameRate").SelectedIndex != (index == 1 ? 1 : 2)))
+                    preset.SelectedIndex = 3;
+            }
+            catch (Exception error) { AddLog("Чтение настроек: " + error.Message); }
+        }
+
+        void SaveStreamSettings()
+        {
+            if (settingsPath == null || applyingPreset || closing) return;
+            var values = new Dictionary<string, object>();
+            foreach (string name in SelectionSettings) values[name] = Get<ComboBox>(name).SelectedIndex;
+            foreach (string name in ToggleSettings) values[name] = Get<CheckBox>(name).IsChecked == true;
+            var status = Get<TextBlock>("SettingsSaveStatus");
+            try
+            {
+                StreamSettings.Save(settingsPath, values);
+                status.Visibility = Visibility.Collapsed;
+            }
+            catch (Exception error)
+            {
+                status.Visibility = Visibility.Visible;
+                AddLog("Сохранение настроек: " + error.Message);
+            }
+        }
+
+        async Task CheckForUpdatesAsync()
+        {
+            try
+            {
+                await Task.Run(() => AppUpdate.CleanOldDownloads());
+                var update = await AppUpdate.CheckAsync(updateLifetime.Token);
+                if (!closing && update != null) ShowUpdate(update);
+            }
+            catch (Exception error)
+            {
+                AddLog("Проверка обновлений Morror: " + error.Message);
+            }
+        }
+
+        void ShowUpdate(AppUpdate update)
+        {
+            availableUpdate = update;
+            Get<TextBlock>("UpdateTitle").Text = "Доступна новая версия Morror " + update.Version;
+            Get<Border>("UpdateNotice").Visibility = Visibility.Visible;
+        }
+
+        async Task DownloadUpdateAsync()
+        {
+            var download = Get<Button>("DownloadUpdate");
+            if (availableUpdate == null || !download.IsEnabled) return;
+            var later = Get<Button>("LaterUpdate");
+            var status = Get<TextBlock>("UpdateStatus");
+            download.IsEnabled = later.IsEnabled = false;
+            status.Text = "Подключение к GitHub…";
+            string folder = null;
+            try
+            {
+                var progress = new Progress<int>(percent =>
+                {
+                    status.Text = percent == 100 ? "Проверка установщика…" : "Скачивание… " + percent + "%";
+                });
+                folder = await availableUpdate.DownloadAsync(progress, updateLifetime.Token);
+                status.Text = "Установщик проверен.";
+                if (window.OwnedWindows.Cast<Window>().Any(owned => owned.IsVisible) || iPhoneWindow != null || starting || networkBusy)
+                    status.Text = "Обновление начнётся после завершения текущей операции.";
+                while (!closing && (window.OwnedWindows.Cast<Window>().Any(owned => owned.IsVisible) || iPhoneWindow != null || starting || networkBusy))
+                    await Task.Delay(300, updateLifetime.Token);
+                if (closing) return;
+                status.Text = "Установка обновления. Morror откроется снова.";
+                window.IsEnabled = false;
+                try
+                {
+                    await availableUpdate.StartInstallerAsync(folder, updateLifetime.Token);
+                    folder = null;
+                    if (closing) return;
+                    exitRequested = true;
+                    window.Close();
+                }
+                finally
+                {
+                    if (!closing) window.IsEnabled = true;
+                }
+            }
+            catch (Exception error)
+            {
+                if (!closing)
+                {
+                    status.Text = "Не удалось скачать или запустить обновление. Повторите попытку.";
+                    AddLog("Обновление Morror: " + error.Message);
+                }
+            }
+            finally
+            {
+                AppUpdate.DeleteStaging(folder);
+                if (!closing) download.IsEnabled = later.IsEnabled = true;
+            }
+        }
+
+        void OpenIPhone()
+        {
+            if (iPhoneWindow != null && !iPhoneWindow.HasExited)
+            {
+                iPhoneWindow.Refresh();
+                var handle = iPhoneWindow.MainWindowHandle;
+                if (handle != IntPtr.Zero) { ShowWindow(handle, 9); SetForegroundWindow(handle); }
+                return;
+            }
+            try
+            {
+                string executable = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "runtime", "iphone", "Morror.iPhone.exe");
+                if (!File.Exists(executable)) throw new IOException("Установите полный пакет Morror с поддержкой iPhone.");
+                int parent;
+                using (var current = Process.GetCurrentProcess()) parent = current.Id;
+                var process = new Process { StartInfo = new ProcessStartInfo(executable, parent.ToString())
+                { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(executable) }, EnableRaisingEvents = true };
+                process.Exited += (s, e) =>
+                {
+                    if (window.Dispatcher.HasShutdownStarted) { process.Dispose(); return; }
+                    window.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (iPhoneWindow != process) { process.Dispose(); return; }
+                        iPhoneWindow = null;
+                        process.Dispose();
+                        if (exitRequested && !closing) window.Close();
+                    }));
+                };
+                try { process.Start(); iPhoneWindow = process; }
+                catch { process.Dispose(); throw; }
+            }
+            catch (Exception error) { Notice(error.Message); AddLog(error.Message); }
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool ShowWindow(IntPtr window, int command);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
+
         void UpdateLayout()
         {
             bool compact = window.ActualWidth < 1060;
             Get<ColumnDefinition>("SidebarColumn").Width = new GridLength(compact ? 76 : 204);
-            foreach (string name in new[] { "BrandLabel", "NavSectionLabel", "OverviewLabel", "TransferLabel", "SecondScreenLabel", "SettingsLabel", "LogLabel", "SidebarNote" })
+            foreach (string name in new[] { "BrandLabel", "NavSectionLabel", "OverviewLabel", "TransferLabel", "SecondScreenLabel", "IPhoneLabel", "SettingsLabel", "LogLabel", "SidebarNote" })
                 Get<FrameworkElement>(name).Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
             Get<FrameworkElement>("HeroArt").Width = compact ? 220 : 300;
             // Keep device details on moderately sized windows; only the smallest layout needs one column.
@@ -216,7 +482,6 @@ namespace Morror
             }
             catch (Exception e)
             {
-                Get<CheckBox>("AutoTray").IsChecked = false;
                 Get<CheckBox>("AutoTray").IsEnabled = false;
                 Notice("Не удалось создать значок трея. Окно настроек останется доступным на панели задач.");
                 AddLog(e.Message);
@@ -484,6 +749,7 @@ namespace Morror
                 var args = Protocol.MirrorArguments(device.Serial, Get<ComboBox>("Quality").SelectedIndex, fps, audio, Get<CheckBox>("Control").IsChecked == true, Get<CheckBox>("AlwaysOnTop").IsChecked == true, Get<CheckBox>("ClipboardSync").IsChecked == true, Get<ComboBox>("KeyboardMode").SelectedIndex == 0, Get<CheckBox>("ScreenOff").IsChecked == true);
                 launched = new Process { StartInfo = Commands.StartInfo(Path.Combine(runtime, "scrcpy.exe"), args), EnableRaisingEvents = true };
                 launched.StartInfo.EnvironmentVariables["ADB"] = Adb;
+                launched.StartInfo.EnvironmentVariables["SCRCPY_ICON_DIR"] = runtime;
                 launched.OutputDataReceived += OnOutput; launched.ErrorDataReceived += OnOutput;
                 var owned = launched;
                 launched.Exited += (s, e) => { if (!closing && !window.Dispatcher.HasShutdownStarted) window.Dispatcher.BeginInvoke(new Action(() => Ended(owned))); };

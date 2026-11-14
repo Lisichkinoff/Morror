@@ -6,12 +6,16 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Collections.Generic;
+using System.Security.AccessControl;
+using System.Threading;
 using Microsoft.Win32;
 
 namespace Morror
 {
     public static class VirtualMonitorDriver
     {
+        static readonly Guid DisplayClass = new Guid("4d36e968-e325-11ce-bfc1-08002be10318");
+        const uint DeviceStarted = 8, ProblemDisabled = 22, DisableWithoutUi = 4, DisablePersistently = 8;
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] struct DisplayDevice
         {
             public int cb;
@@ -36,7 +40,15 @@ namespace Morror
             for(uint i=0;i<64;i++) { var d=new DisplayDevice { cb=Marshal.SizeOf(typeof(DisplayDevice)) }; if(!EnumDisplayDevices(null,i,ref d,0)) break; list.Add(d); }
             return list.ToArray();
         }
-        static bool IsDriver(DisplayDevice d) { return d.description != null && d.description.IndexOf("Virtual Display Driver",StringComparison.OrdinalIgnoreCase)>=0; }
+        static bool IsDriver(DisplayDevice device)
+        {
+            return IsDriverId(device.id);
+        }
+        static bool IsDriverId(string id)
+        {
+            return string.Equals(id, @"Root\MttVDD", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(id, "MttVDD", StringComparison.OrdinalIgnoreCase);
+        }
         internal sealed class PhysicalModes : IDisposable
         {
             readonly Dictionary<string,Mode> saved;
@@ -83,7 +95,8 @@ namespace Morror
                 if(result!=0)throw new IOException("Windows изменила режим физического монитора и не восстановила "+mode.frequency+" Гц (код "+result+").");
             });
         }
-        public static bool Installed { get { return Adapters().Any(IsDriver); } }
+        public static bool Installed { get { return DriverNodes().Length > 0; } }
+        internal static bool Enabled { get { return Adapters().Any(IsDriver); } }
         internal static ScreenChoice[] ReadScreens()
         {
             // Screen.AllScreens caches Bounds until WinForms processes a display-change
@@ -99,8 +112,18 @@ namespace Morror
             }
             return screens.ToArray();
         }
-        public static bool IsVirtualScreen(string deviceName) { return Adapters().Any(d=>d.name==deviceName && IsDriver(d)); }
-        public static ScreenChoice[] Screens() { return ScreenChoice.Read().Where(s=>!s.Primary && IsVirtualScreen(s.DeviceName)).ToArray(); }
+        internal static bool HasBounds(ScreenChoice screen)
+        {
+            var mode = CurrentMode(screen.DeviceName);
+            return mode.HasValue && mode.Value.x == screen.Bounds.X && mode.Value.y == screen.Bounds.Y &&
+                mode.Value.width == screen.Bounds.Width && mode.Value.height == screen.Bounds.Height;
+        }
+        public static bool IsVirtualScreen(string deviceName) { return Adapters().Any(d=>string.Equals(d.name,deviceName,StringComparison.OrdinalIgnoreCase) && IsDriver(d)); }
+        public static ScreenChoice[] Screens()
+        {
+            var names = new HashSet<string>(Adapters().Where(IsDriver).Select(d => d.name), StringComparer.OrdinalIgnoreCase);
+            return ReadScreens().Where(s => !s.Primary && names.Contains(s.DeviceName)).ToArray();
+        }
         public static bool Attach(int width=1920,int height=1080,int fps=60)
         {
             MonitorResolution.Validate(width,height,fps);
@@ -165,40 +188,131 @@ namespace Morror
         }
         static void RestartVirtualAdapters()
         {
-            Guid displayClass=new Guid("4d36e968-e325-11ce-bfc1-08002be10318");
-            IntPtr set=SetupDiGetClassDevs(ref displayClass,null,IntPtr.Zero,2);if(set==new IntPtr(-1))throw new Win32Exception();int restarted=0;
+            int restarted = 0;
+            VisitDriverNodes((set, device) =>
+            {
+                var change=new PropertyChange{headerSize=8,function=0x12,stateChange=3,scope=2,profile=0};
+                if(!SetupDiSetClassInstallParams(set,ref device,ref change,Marshal.SizeOf(typeof(PropertyChange)))||!SetupDiCallClassInstaller(0x12,set,ref device))throw new Win32Exception();
+                restarted++;
+            });
+            if(restarted==0)throw new IOException("Не найдено устройство MttVDD для обновления списка разрешений.");
+        }
+
+        static uint[] DriverNodes()
+        {
+            var nodes = new List<uint>();
+            VisitDriverNodes((set, device) => nodes.Add(device.devInst));
+            return nodes.ToArray();
+        }
+
+        static void VisitDriverNodes(Action<IntPtr, DeviceInfo> visit)
+        {
+            Guid displayClass = DisplayClass;
+            IntPtr set=SetupDiGetClassDevs(ref displayClass,null,IntPtr.Zero,2);if(set==new IntPtr(-1))throw new Win32Exception();
             try
             {
+                var bytes = new byte[4096];
                 for(uint index=0;index<128;index++)
                 {
                     var device=new DeviceInfo{size=Marshal.SizeOf(typeof(DeviceInfo))};if(!SetupDiEnumDeviceInfo(set,index,ref device))break;
-                    uint type,required;var bytes=new byte[4096];
+                    uint type,required;
                     if(!SetupDiGetDeviceRegistryProperty(set,ref device,1,out type,bytes,(uint)bytes.Length,out required))continue;
                     string[] ids=Encoding.Unicode.GetString(bytes,0,(int)Math.Min(required,(uint)bytes.Length)).Split('\0');
-                    if(!ids.Any(id=>string.Equals(id,@"Root\MttVDD",StringComparison.OrdinalIgnoreCase)||string.Equals(id,"MttVDD",StringComparison.OrdinalIgnoreCase)))continue;
-                    var change=new PropertyChange{headerSize=8,function=0x12,stateChange=3,scope=2,profile=0};
-                    if(!SetupDiSetClassInstallParams(set,ref device,ref change,Marshal.SizeOf(typeof(PropertyChange)))||!SetupDiCallClassInstaller(0x12,set,ref device))throw new Win32Exception();
-                    restarted++;
+                    if(ids.Any(IsDriverId))visit(set, device);
                 }
             }
             finally{SetupDiDestroyDeviceInfoList(set);}
-            if(restarted==0)throw new IOException("Не найдено устройство MttVDD для обновления списка разрешений.");
+        }
+
+        internal static void SetEnabled(bool enabled)
+        {
+            var nodes = DriverNodes();
+            if (nodes.Length != 1)
+                throw new IOException("Для переключения монитора Windows должно быть найдено одно устройство MttVDD.");
+            uint node = nodes[0], status, problem;
+            CheckConfiguration(CM_Get_DevNode_Status(out status, out problem, node, 0));
+            if (enabled ? (status & DeviceStarted) != 0 && Enabled : problem == ProblemDisabled && !Enabled) return;
+
+            using (PreservePhysicalModes())
+            {
+                if (!enabled)
+                {
+                    // Detach before removing the target so Windows can keep the other display paths.
+                    var displays = Adapters().Where(d => (d.flags & 1) != 0).ToArray();
+                    if (!displays.Any(d => !IsDriver(d)) || displays.Any(d => IsDriver(d) && (d.flags & 4) != 0))
+                        throw new IOException("Сначала назначьте физический экран основным дисплеем Windows.");
+                    DetachIdleScreens();
+                }
+                CheckConfiguration(enabled ? CM_Enable_DevNode(node, 0) : CM_Disable_DevNode(node, DisableWithoutUi | DisablePersistently));
+                for (int i = 0; i < 50; i++)
+                {
+                    CheckConfiguration(CM_Get_DevNode_Status(out status, out problem, node, 0));
+                    if (enabled ? (status & DeviceStarted) != 0 && Enabled : problem == ProblemDisabled && !Enabled)
+                        return;
+                    Thread.Sleep(100);
+                }
+                throw new IOException("Windows не подтвердила переключение устройства MttVDD.");
+            }
+        }
+
+        static void CheckConfiguration(uint result)
+        {
+            if (result != 0) throw new Win32Exception((int)CM_MapCrToWin32Err(result, 31));
+        }
+
+        internal static void RunSessionWorker(int parentId, long parentStarted, string signalId)
+        {
+            using (var parent = System.Diagnostics.Process.GetProcessById(parentId))
+            {
+                if (parent.StartTime.ToUniversalTime().Ticks != parentStarted)
+                    throw new IOException("Сеанс Morror уже завершён.");
+                // Open a handle now so PID reuse cannot keep the driver enabled.
+                using (var parentExited = new EventWaitHandle(false, EventResetMode.ManualReset))
+                using (var ended = EventWaitHandle.OpenExisting(@"Local\Morror.MonitorStopped." + signalId, EventWaitHandleRights.Synchronize))
+                using (var ready = EventWaitHandle.OpenExisting(@"Local\Morror.MonitorReady." + signalId, EventWaitHandleRights.Modify))
+                {
+                    parentExited.SafeWaitHandle = new Microsoft.Win32.SafeHandles.SafeWaitHandle(parent.Handle, false);
+                    var stop = new WaitHandle[] { parentExited, ended };
+                    if (WaitHandle.WaitAny(stop, 0) != WaitHandle.WaitTimeout) return;
+                    try
+                    {
+                        SetEnabled(true);
+                        ready.Set();
+                        WaitHandle.WaitAny(stop);
+                    }
+                    finally { SetEnabled(false); }
+                }
+            }
         }
         public static void Detach(string deviceName)
         {
-            if(!Screens().Any(s=>s.DeviceName==deviceName))return;
-            using(var preserve=PreservePhysicalModes())
+            DetachScreens(deviceName);
+        }
+        internal static void DetachIdleScreens()
+        {
+            DetachScreens(null);
+        }
+        static void DetachScreens(string deviceName)
+        {
+            const int Primary = 4;
+            var adapters = Adapters();
+            var virtualDisplays = adapters.Where(d => IsDriver(d) && (d.flags & Primary) == 0 &&
+                (deviceName == null || string.Equals(d.name, deviceName, StringComparison.OrdinalIgnoreCase)))
+                .Select(d => d.name).ToArray();
+            if (virtualDisplays.Length == 0) return;
+            using (PreservePhysicalModes())
             {
-                int result=DisplayTopology.Detach(deviceName);
-                if(result!=0)throw new IOException("Windows не отключила виртуальный монитор (код "+result+"). Повторите остановку сеанса.");
+                int result = DisplayTopology.Detach(virtualDisplays);
+                if (result != 0) throw new IOException("Windows не отключила виртуальный монитор (код " + result + ").");
             }
         }
         public static void InstallBundled()
         {
             string folder=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"runtime","monitor-driver");
             VerifyBundle(folder);
-            if(Installed) return;
-            using(var preserve=PreservePhysicalModes())Install(folder);
+            if(!Installed)
+                using(var preserve=PreservePhysicalModes())Install(folder);
+            SetEnabled(false);
         }
         public static void VerifyBundle(string folder)
         {
@@ -211,7 +325,7 @@ namespace Morror
         {
             string configuration=@"C:\VirtualDisplayDriver\vdd_settings.xml";
             if(!File.Exists(configuration)) { Directory.CreateDirectory(Path.GetDirectoryName(configuration));File.Copy(Path.Combine(folder,"vdd_settings.xml"),configuration); }
-            Guid displayClass=new Guid("4d36e968-e325-11ce-bfc1-08002be10318");
+            Guid displayClass=DisplayClass;
             IntPtr set=SetupDiCreateDeviceInfoList(ref displayClass,IntPtr.Zero);
             if(set==new IntPtr(-1)) throw new Win32Exception();
             var device=new DeviceInfo { size=Marshal.SizeOf(typeof(DeviceInfo)) }; bool registered=false;
@@ -254,6 +368,10 @@ namespace Morror
         [DllImport("setupapi.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool SetupDiSetDeviceRegistryProperty(IntPtr set,ref DeviceInfo device,uint property,byte[] buffer,uint length);
         [DllImport("setupapi.dll",SetLastError=true)] static extern bool SetupDiCallClassInstaller(uint function,IntPtr set,ref DeviceInfo device);
         [DllImport("setupapi.dll")] static extern bool SetupDiDestroyDeviceInfoList(IntPtr set);
+        [DllImport("cfgmgr32.dll")] static extern uint CM_Get_DevNode_Status(out uint status,out uint problem,uint device,uint flags);
+        [DllImport("cfgmgr32.dll")] static extern uint CM_Enable_DevNode(uint device,uint flags);
+        [DllImport("cfgmgr32.dll")] static extern uint CM_Disable_DevNode(uint device,uint flags);
+        [DllImport("cfgmgr32.dll")] static extern uint CM_MapCrToWin32Err(uint result,uint defaultError);
         [DllImport("setupapi.dll",CharSet=CharSet.Unicode,SetLastError=true)]static extern IntPtr SetupDiGetClassDevs(ref Guid classGuid,string enumerator,IntPtr parent,uint flags);
         [DllImport("setupapi.dll",SetLastError=true)]static extern bool SetupDiEnumDeviceInfo(IntPtr set,uint index,ref DeviceInfo info);
         [DllImport("setupapi.dll",CharSet=CharSet.Unicode,SetLastError=true)]static extern bool SetupDiGetDeviceRegistryProperty(IntPtr set,ref DeviceInfo info,uint property,out uint type,byte[] data,uint size,out uint required);

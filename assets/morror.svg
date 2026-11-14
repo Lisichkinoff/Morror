@@ -1,6 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <defs><linearGradient id="bg" x2="0.8" y2="1"><stop stop-color="#23362e"/><stop offset="1" stop-color="#10191f"/></linearGradient><linearGradient id="mint" x2="0.8" y2="1"><stop stop-color="#dcffe6"/><stop offset="1" stop-color="#89d7ac"/></linearGradient></defs>
-  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)" stroke="#3e584b" stroke-width="2"/>
-  <path d="M128 40 216 128 128 216 40 128Z" fill="none" stroke="url(#mint)" stroke-width="12" stroke-linejoin="round"/>
-  <path d="M94 151V104L128 135 162 104V151" fill="none" stroke="#baf3cf" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <defs>
+    <linearGradient id="bg" x2="0.47" y2="1"><stop stop-color="#483976"/><stop offset="1" stop-color="#22232d"/></linearGradient>
+    <linearGradient id="lavender" x2="0.47" y2="1"><stop stop-color="#dcd0ff"/><stop offset="1" stop-color="#9980f2"/></linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)" stroke="#705d9f" stroke-width="4"/>
+  <path d="M128 43 213 128 128 213 43 128Z" fill="none" stroke="url(#lavender)" stroke-width="16" stroke-linejoin="round"/>
+  <path d="M94 151V106L128 135 162 106V151" fill="none" stroke="#f4edff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

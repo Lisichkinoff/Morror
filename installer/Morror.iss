@@ -1,8 +1,4 @@
-#define MyAppVersion "0.9.2"
 #define ProjectRoot AddBackslash(SourcePath) + ".."
-#ifndef PayloadDir
-  #define PayloadDir ProjectRoot + "\dist\Morror-0.9.2"
-#endif
 #ifndef InstallerOutput
   #define InstallerOutput ProjectRoot + "\dist"
 #endif
@@ -10,21 +6,21 @@
 [Setup]
 #ifdef TestBuild
 AppId=Morror.Installer.Test
-OutputBaseFilename=Morror-0.9.2-Setup-Test
+OutputBaseFilename=Morror-{#MyAppVersion}-Setup-Test
 CreateUninstallRegKey=no
 AppMutex=Local\Morror.Installer.Test.App
 SetupMutex=Local\Morror.Installer.Test.Setup
 #else
 AppId={{DF58DC88-4346-493F-BCCE-9BCA671D2387}
-OutputBaseFilename=Morror-0.9.2-Setup-win64
-AppMutex=Local\Morror.Desktop
+OutputBaseFilename=Morror-{#MyAppVersion}-Setup-win64
+AppMutex=Local\Morror.Desktop,Local\Morror.iPhone
 SetupMutex=Local\Morror.Setup
 #endif
 AppName=Morror
 AppVersion={#MyAppVersion}
 AppVerName=Morror {#MyAppVersion}
 AppPublisher=Morror
-VersionInfoVersion=0.9.2.0
+VersionInfoVersion={#MyAppVersion}.0
 VersionInfoDescription=Установка Morror
 DefaultDirName={localappdata}\Programs\Morror
 DefaultGroupName=Morror
@@ -46,7 +42,7 @@ Compression=lzma2/normal
 SolidCompression=yes
 CloseApplications=no
 RestartApplications=no
-Uninstallable=yes
+Uninstallable=not IsPortableUpdate
 UninstallDisplayName=Morror
 SetupLogging=yes
 
@@ -61,11 +57,11 @@ Name: "desktopicon"; Description: "Создать ярлык на рабочем
 
 [Icons]
 #ifdef TestBuild
-Name: "{app}\TestStartMenu\Morror"; Filename: "{app}\Morror.exe"; WorkingDir: "{app}"; IconFilename: "{app}\Morror.exe"
-Name: "{app}\TestDesktop\Morror"; Filename: "{app}\Morror.exe"; WorkingDir: "{app}"; IconFilename: "{app}\Morror.exe"; Tasks: desktopicon
+Name: "{app}\TestStartMenu\Morror"; Filename: "{app}\Morror.exe"; WorkingDir: "{app}"; IconFilename: "{app}\morror.ico"; Check: not IsPortableUpdate
+Name: "{app}\TestDesktop\Morror"; Filename: "{app}\Morror.exe"; WorkingDir: "{app}"; IconFilename: "{app}\morror.ico"; Tasks: desktopicon; Check: not IsPortableUpdate
 #else
-Name: "{autoprograms}\Morror\Morror"; Filename: "{app}\Morror.exe"; WorkingDir: "{app}"; IconFilename: "{app}\Morror.exe"; Comment: "Экран и звук Android на компьютере"
-Name: "{autodesktop}\Morror"; Filename: "{app}\Morror.exe"; WorkingDir: "{app}"; IconFilename: "{app}\Morror.exe"; Comment: "Экран и звук Android на компьютере"; Tasks: desktopicon
+Name: "{autoprograms}\Morror\Morror"; Filename: "{app}\Morror.exe"; WorkingDir: "{app}"; IconFilename: "{app}\morror.ico"; Comment: "Экран и звук Android на компьютере"; Check: not IsPortableUpdate
+Name: "{autodesktop}\Morror"; Filename: "{app}\Morror.exe"; WorkingDir: "{app}"; IconFilename: "{app}\morror.ico"; Comment: "Экран и звук Android на компьютере"; Tasks: desktopicon; Check: not IsPortableUpdate
 #endif
 
 [Run]
@@ -75,6 +71,16 @@ Filename: "{app}\Morror.exe"; Description: "Запустить Morror"; Flags: n
 AppRunningError=Программа Morror уже запущена.%n%nОткройте значок Morror рядом с часами Windows и выберите «Выйти из Morror», затем повторите установку или удаление.
 
 [Code]
+function IsPortableUpdate(): Boolean;
+var
+  Index: Integer;
+begin
+  Result := False;
+  for Index := 1 to ParamCount do
+    if CompareText(ParamStr(Index), '/MORRORPORTABLEUPDATE') = 0 then
+      Result := True;
+end;
+
 function NeedsFile(RelativePath, ExpectedHash: String): Boolean;
 var
   Destination: String;

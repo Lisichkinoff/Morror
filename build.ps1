@@ -1,8 +1,9 @@
-param([switch]$Test, [string]$OutputDirectory = 'dist\Morror-0.9.2')
+param([switch]$Test, [string]$OutputDirectory)
 $ErrorActionPreference = 'Stop'
 $projectRoot = $PSScriptRoot
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $framework = Split-Path $compiler
+if (!$OutputDirectory) { $OutputDirectory = 'dist\Morror-' + (& (Join-Path $projectRoot 'scripts\get-app-version.ps1')) }
 $output = if ([System.IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $projectRoot $OutputDirectory }
 if (!(Test-Path -LiteralPath $compiler)) { throw 'Нужен .NET Framework 4.8 (встроен в Windows 10/11).' }
 New-Item -ItemType Directory -Force -Path $output | Out-Null
@@ -11,9 +12,11 @@ $qrLibrary = Join-Path $projectRoot 'tools\qrcoder-1.8.1\lib\net40\QRCoder.dll'
 if (!(Test-Path -LiteralPath $qrLibrary)) { throw 'Сначала выполните scripts\get-qr-dependencies.ps1.' }
 $references += '/reference:' + $qrLibrary
 $sources = @('Core.cs','App.cs','TrayController.cs','WirelessPairing.cs','QrPairingDialog.cs','MirrorWindow.cs','DeviceCapabilities.cs','FileTransfer.cs','ClipboardTransfer.cs','TransferDialog.cs','SecondScreenProtocol.cs','MonitorResolution.cs','ScreenTouchInjection.cs','NativeMonitor.cs','DisplayTopology.cs','VirtualMonitorDriver.cs','WasapiMonitorAudio.cs','AndroidMonitorClient.cs','SecondScreenDialog.cs','AssemblyInfo.cs') | ForEach-Object { Join-Path $projectRoot ('src\' + $_) }
+$sources += 'AppUpdate.cs','MonitorCapture.cs','StreamSettings.cs','MonitorApkDownload.cs','MonitorApkFirewall.cs' | ForEach-Object { Join-Path $projectRoot ('src\' + $_) }
 $resources = @('MainWindow.xaml','QrWindow.xaml','TransferWindow.xaml','SecondScreenWindow.xaml') | ForEach-Object { '/resource:' + (Join-Path $projectRoot ('src\' + $_)) + ',' + $_ }
 $icon = Join-Path $projectRoot 'assets\morror.ico'
-if (!(Test-Path -LiteralPath $icon)) { & (Join-Path $projectRoot 'scripts\build-icon.ps1') }
+$mirrorIcon = Join-Path $projectRoot 'assets\morror.png'
+if (!(Test-Path -LiteralPath $icon) -or !(Test-Path -LiteralPath $mirrorIcon)) { & (Join-Path $projectRoot 'scripts\build-icon.ps1') }
 $iconResource = '/resource:' + $icon + ',Morror.ico'
 $resources += $iconResource
 & $compiler /nologo /target:winexe /platform:x64 /optimize+ /utf8output ("/out:" + (Join-Path $output 'Morror.exe')) ("/win32icon:" + $icon) $resources ("/win32manifest:" + (Join-Path $projectRoot 'src\app.manifest')) $references $sources
@@ -23,6 +26,16 @@ if (!(Test-Path -LiteralPath (Join-Path $engine 'scrcpy.exe'))) { throw 'Сна�
 $runtime = Join-Path $output 'runtime'
 New-Item -ItemType Directory -Force -Path $runtime | Out-Null
 $nativeTools = Join-Path $projectRoot 'tools\native-monitor'
+$iphoneSource = Join-Path $projectRoot 'tools\iphone-mirror-1.8.3'
+if (!(Test-Path -LiteralPath (Join-Path $iphoneSource 'iPhoneMirror.Core.dll'))) { throw 'Сначала выполните scripts\get-iphone-dependencies.ps1.' }
+$iphoneRuntime = Join-Path $runtime 'iphone'
+New-Item -ItemType Directory -Path $iphoneRuntime -Force | Out-Null
+Copy-Item -Path (Join-Path $iphoneSource '*') -Destination $iphoneRuntime -Recurse -Force
+$iphoneSources = @('IPhoneApp.cs','IPhoneMirrorDialog.cs','IPhoneMirrorEngine.cs','AssemblyInfo.cs') | ForEach-Object { Join-Path $projectRoot ('src\' + $_) }
+$iphoneWindow = '/resource:' + (Join-Path $projectRoot 'src\IPhoneWindow.xaml') + ',IPhoneWindow.xaml'
+$iphoneTheme = '/resource:' + (Join-Path $projectRoot 'src\MainWindow.xaml') + ',MainWindow.xaml'
+& $compiler /nologo /target:winexe /platform:x64 /main:Morror.IPhoneApp /optimize+ /utf8output ("/out:" + (Join-Path $iphoneRuntime 'Morror.iPhone.exe')) ("/win32icon:" + $icon) $iphoneTheme $iphoneWindow $iconResource ("/win32manifest:" + (Join-Path $projectRoot 'src\app.manifest')) $references $iphoneSources
+if ($LASTEXITCODE -ne 0) { throw 'Ошибка компиляции компонента iPhone.' }
 $nativeApk = Join-Path $nativeTools 'MorrorMonitor.apk'
 $nativeEncoder = Get-ChildItem -LiteralPath (Join-Path $nativeTools 'ffmpeg') -Filter ffmpeg.exe -Recurse -File | Select-Object -First 1 -ExpandProperty FullName
 if (!(Test-Path -LiteralPath $nativeApk) -or !$nativeEncoder) { throw 'Выполните scripts\get-native-monitor-dependencies.ps1 -BuildTools и scripts\build-android-monitor.ps1.' }
@@ -31,12 +44,34 @@ Copy-Item -LiteralPath $nativeEncoder -Destination (Join-Path $runtime 'ffmpeg.e
 $driverRuntime = Join-Path $runtime 'monitor-driver'
 New-Item -ItemType Directory -Force -Path $driverRuntime | Out-Null
 Copy-Item -LiteralPath (Join-Path $nativeTools 'driver\VirtualDisplayDriver\MttVDD.inf'),(Join-Path $nativeTools 'driver\VirtualDisplayDriver\MttVDD.dll'),(Join-Path $nativeTools 'driver\VirtualDisplayDriver\mttvdd.cat'),(Join-Path $nativeTools 'driver\VirtualDisplayDriver\vdd_settings.xml') -Destination $driverRuntime -Force
-Get-ChildItem -LiteralPath $engine -File | Where-Object { $_.Extension -in @('.exe','.dll','.txt','.png') -or $_.Name -eq 'scrcpy-server' } | ForEach-Object {
+Get-ChildItem -LiteralPath $engine -File | Where-Object {
+    $_.Name -notin @('scrcpy.exe','scrcpy.png') -and ($_.Extension -in @('.exe','.dll','.txt','.png') -or $_.Name -eq 'scrcpy-server')
+} | ForEach-Object {
     $destination = Join-Path $runtime $_.Name
     # ADB may be serving this or another app: do not overwrite identical running components.
     if (!(Test-Path -LiteralPath $destination) -or (Get-FileHash -LiteralPath $_.FullName).Hash -ne (Get-FileHash -LiteralPath $destination).Hash) {
         Copy-Item -LiteralPath $_.FullName -Destination $destination -Force
     }
+}
+# scrcpy loads its window icon separately from the Morror executable.
+Copy-Item -LiteralPath $mirrorIcon -Destination (Join-Path $runtime 'scrcpy.png') -Force
+$brandingDir = Join-Path (Join-Path $projectRoot 'test-output') ([Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Force -Path $brandingDir | Out-Null
+try {
+    $iconTool = Join-Path $brandingDir 'SetScrcpyIcon.exe'
+    $brandedEngine = Join-Path $brandingDir 'scrcpy.exe'
+    & $compiler /nologo /target:exe ("/out:" + $iconTool) (Join-Path $projectRoot 'scripts\SetScrcpyIcon.cs')
+    if ($LASTEXITCODE -ne 0) { throw 'Не удалось собрать замену значка scrcpy.' }
+    Copy-Item -LiteralPath (Join-Path $engine 'scrcpy.exe') -Destination $brandedEngine
+    & $iconTool $brandedEngine $icon
+    if ($LASTEXITCODE -ne 0) { throw 'Не удалось заменить значок scrcpy.' }
+    $destination = Join-Path $runtime 'scrcpy.exe'
+    if (!(Test-Path -LiteralPath $destination) -or (Get-FileHash -LiteralPath $brandedEngine).Hash -ne (Get-FileHash -LiteralPath $destination).Hash) {
+        Copy-Item -LiteralPath $brandedEngine -Destination $destination -Force
+    }
+} finally {
+    Remove-Item -LiteralPath (Join-Path $brandingDir 'SetScrcpyIcon.exe'),(Join-Path $brandingDir 'scrcpy.exe') -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $brandingDir -ErrorAction SilentlyContinue
 }
 Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md'),(Join-Path $projectRoot 'THIRD-PARTY-NOTICES.md') -Destination $output -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\second-screen.md') -Destination (Join-Path $output 'SECOND-SCREEN.md') -Force

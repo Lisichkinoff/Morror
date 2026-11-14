@@ -68,7 +68,10 @@ namespace Morror
         public static ScreenNetwork[] Read()
         {
             return NetworkInterface.GetAllNetworkInterfaces().Where(n => n.OperationalStatus == OperationalStatus.Up && n.NetworkInterfaceType != NetworkInterfaceType.Loopback)
-                .SelectMany(n => n.GetIPProperties().UnicastAddresses.Where(a => a.Address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(a.Address) && !a.Address.ToString().StartsWith("169.254."))
+                .OrderByDescending(n => n.GetIPProperties().GatewayAddresses.Any(g => g.Address.AddressFamily == AddressFamily.InterNetwork && !g.Address.Equals(IPAddress.Any)))
+                .SelectMany(n => n.GetIPProperties().UnicastAddresses.Where(a => a.Address.AddressFamily == AddressFamily.InterNetwork &&
+                    !IPAddress.IsLoopback(a.Address) && !a.Address.ToString().StartsWith("169.254.") &&
+                    a.IPv4Mask != null && !a.IPv4Mask.Equals(IPAddress.Broadcast))
                     .Select(a => new ScreenNetwork { Address = a.Address, Name = n.Name })).ToArray();
         }
     }

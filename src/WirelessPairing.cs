@@ -98,6 +98,35 @@ namespace Morror
             return state.ExitCode == 0 && state.Output.Trim() == "device";
         }
 
+        public async Task<PairingResult> PairByCode(string endpoint, string code, string connectAddress, CancellationToken cancellation)
+        {
+            endpoint = Protocol.Endpoint(endpoint);
+            code = Protocol.PairingCode(code);
+            if (!string.IsNullOrWhiteSpace(connectAddress)) connectAddress = Protocol.Endpoint(connectAddress);
+            await PairEndpoint(endpoint, code, cancellation);
+            return await ConnectAfterPair(endpoint, connectAddress, cancellation);
+        }
+
+        async Task PairEndpoint(string endpoint, string secret, CancellationToken cancellation)
+        {
+            var paired = await execute(new[] { "pair", endpoint, secret }, cancellation);
+            cancellation.ThrowIfCancellationRequested();
+            if (paired.ExitCode != 0 || paired.Combined.IndexOf("Successfully paired", StringComparison.OrdinalIgnoreCase) < 0)
+                throw new InvalidOperationException("Сопряжение не завершено. Проверьте адрес и код на телефоне и повторите попытку.");
+        }
+
+        async Task<PairingResult> ConnectAfterPair(string endpoint, string connectAddress, CancellationToken cancellation)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(connectAddress))
+                    return new PairingResult { Connected = await Connect(connectAddress, cancellation), Address = connectAddress };
+                return await ConnectHost(endpoint, cancellation, 8);
+            }
+            catch (InvalidOperationException) { return new PairingResult(); }
+            catch (TimeoutException) { return new PairingResult(); }
+        }
+
         public static string WifiAddress(string output)
         {
             // Read the Wi-Fi interface itself, never a VPN/mobile default route.
@@ -117,16 +146,11 @@ namespace Morror
                 if (phone == null) await pause(cancellation);
             }
             progress("Телефон найден. Выполняем сопряжение…");
-            var paired = await execute(new[] { "pair", phone.Address, session.Password }, cancellation);
-            cancellation.ThrowIfCancellationRequested();
-            if (paired.ExitCode != 0 || paired.Combined.IndexOf("Successfully paired", StringComparison.OrdinalIgnoreCase) < 0)
-                throw new InvalidOperationException("Сопряжение не завершено. Создайте новый QR-код и повторите сканирование.");
+            await PairEndpoint(phone.Address, session.Password, cancellation);
             progress("Сопряжение выполнено. Подключаем телефон по Wi-Fi…");
             // Only connect TLS services on the address of the phone that scanned this QR.
             // A stale discovery record must not prevent trying other ports on that phone.
-            try { return await ConnectHost(phone.Address, cancellation, 30); }
-            catch (InvalidOperationException) { return new PairingResult(); }
-            catch (TimeoutException) { return new PairingResult(); }
+            return await ConnectAfterPair(phone.Address, null, cancellation);
         }
     }
 }

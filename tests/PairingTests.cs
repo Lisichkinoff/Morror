@@ -16,6 +16,23 @@ class PairingTests
     static CommandResult Reply(string text, int exitCode = 0) { return new CommandResult { ExitCode = exitCode, Output = text, Error = "" }; }
     static Task<CommandResult> Done(string text, int exitCode = 0) { return Task.FromResult(Reply(text, exitCode)); }
 
+    static void CheckApkDownloadQr()
+    {
+        const string url = "http://192.168.1.10:55001/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/MorrorMonitor.apk";
+        using (var stream = new MemoryStream())
+        {
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create((BitmapSource)QrPairingDialog.Render(url)));
+            encoder.Save(stream);
+            stream.Position = 0;
+            using (var bitmap = new Bitmap(stream))
+            {
+                var decoded = new ZXing.BarcodeReader().Decode(bitmap);
+                Check(decoded != null && decoded.Text == url, "APK download QR encodes an ordinary browser URL");
+            }
+        }
+    }
+
     [STAThread]
     static int Main()
     {
@@ -45,6 +62,7 @@ class PairingTests
             }
         }
         Check(decoded, "Independent ZXing decoder reads the exact payload from generated QR images");
+        CheckApkDownloadQr();
         var services = WirelessPairing.ParseServices("List of discovered mdns services\r\n" + session.ServiceName + " _adb-tls-pairing._tcp. 192.168.1.20:37123\nold _adb._tcp 192.168.1.20:5555\nbad _adb-tls-connect._tcp 999.1.1.1:42\nfull._adb-tls-connect._tcp. _adb-tls-connect._tcp 192.168.1.20:40000\n");
         Check(services.Count == 2 && services[0].Name == session.ServiceName && services[1].Name == "full", "mDNS parser handles suffixes and ignores invalid or legacy services");
         var calls = new List<string[]>();
@@ -64,6 +82,21 @@ class PairingTests
         calls.Clear();
         var manual = await engine.ConnectHost("192.168.1.20:37123", CancellationToken.None);
         Check(manual.Connected && !calls.Any(c => c[0] == "pair") && !calls.Any(c => c[0] == "connect" && c[1].StartsWith("192.168.1.30")), "Code pairing reuses only the matching phone connection service without pairing again");
+        calls.Clear();
+        var explicitEngine = new WirelessPairing((args, token) =>
+        {
+            calls.Add(args);
+            if (args[0] == "pair") return Done("Successfully paired");
+            if (args[0] == "connect") return Done("connected to " + args[1]);
+            if (args[0] == "-s") return Done("device");
+            return Done("mDNS unavailable", 1);
+        }, token => Task.FromResult(0));
+        var explicitPair = await explicitEngine.PairByCode("192.168.1.20:37123", "012345", "192.168.1.20:40001", CancellationToken.None);
+        Check(explicitPair.Connected && explicitPair.Address == "192.168.1.20:40001" &&
+              calls.Count == 3 && calls[0].SequenceEqual(new[] { "pair", "192.168.1.20:37123", "012345" }) &&
+              calls[1].SequenceEqual(new[] { "connect", "192.168.1.20:40001" }) &&
+              calls[2].SequenceEqual(new[] { "-s", "192.168.1.20:40001", "get-state" }),
+              "Manual code pairing uses the two Android ports and verifies the connection without mDNS");
         var staleTimeout = new WirelessPairing((args, token) =>
         {
             if (args[0] == "mdns") return Done("stale _adb-tls-connect._tcp 192.168.1.20:40000\nvalid _adb-tls-connect._tcp 192.168.1.20:40001");

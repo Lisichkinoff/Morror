@@ -1,12 +1,12 @@
 # Morror
 
-**Mirror Android on Windows, or turn an Android device into a native Windows second monitor — over USB or Wi-Fi.**
+**Mirror Android or iPhone on Windows, or use Android as a native Windows second monitor over USB or Wi-Fi.**
 
 Morror combines a Russian-language WPF desktop interface, the official [scrcpy 5.0.1](https://github.com/Genymobile/scrcpy/tree/v5.0.1) runtime for Android-to-PC mirroring, and a native Android receiver for PC-to-Android display extension.
 
-**Latest release: 0.9.2.** The installer and portable ZIP include Android mirroring, the native second-monitor receiver, encoder and signed virtual display component.
+**Latest release: 0.9.3.** Both Windows packages include Android and iPhone mirroring, the native second-monitor APK, the video encoder and the signed virtual display driver.
 
-[Published releases](https://github.com/Lisichkinoff/Morror/releases) · [Download 0.9.2 installer](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.2/Morror-0.9.2-Setup-win64.exe) · [Download 0.9.2 portable ZIP](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.2/Morror-0.9.2-win64.zip) · [Second-monitor guide](docs/second-screen.md)
+[Published releases](https://github.com/Lisichkinoff/Morror/releases) · [Download 0.9.3 installer](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.3/Morror-0.9.3-Setup-win64.exe) · [Download 0.9.3 portable ZIP](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.3/Morror-0.9.3-win64.zip) · [Second-monitor guide](docs/second-screen.md)
 
 ## Features
 
@@ -56,9 +56,20 @@ A real Pixel 8 displaying a **synthetic test pattern at 2400 × 1080**, with the
 - **Second monitor:** Android 8.0 or later, Android H.264 decoding, Windows Media Foundation, and the included signed Virtual Display Driver.
 - **QR pairing:** Android 11 or later with Wireless debugging enabled.
 
-The Windows installer runs per user. Installing the virtual display component, or registering a previously unsupported monitor resolution, requires Windows administrator approval. Root access on Android is not required.
+The Windows installer runs per user. Windows asks for administrator approval to install the virtual display component, enable it for a second-screen session, or register a previously unsupported monitor resolution. Root access on Android is not required.
 
-Run `dist/Morror-0.9.2/Morror.exe`, install `dist/Morror-0.9.2-Setup-win64.exe`, or extract the entire `dist/Morror-0.9.2-win64.zip`. Keep the runtime, QRCoder library and license files together. Exit an older running instance from its tray menu before updating.
+Run `dist/Morror-0.9.3/Morror.exe`, install `dist/Morror-0.9.3-Setup-win64.exe`, or extract the entire `dist/Morror-0.9.3-win64.zip`. Keep the runtime, QRCoder library and license files together.
+
+Starting with 0.9.3, Morror checks GitHub Releases in the background on startup. **Скачать** downloads and verifies the installer, applies the update in the current folder, and reopens Morror. **Позже** dismisses the notice until the next launch. To upgrade from 0.9.2 or earlier, exit the running app from its tray menu and install the current version manually once.
+
+## Mirror iPhone on your PC
+
+Open **iPhone** in the Morror sidebar. This opens a Morror preview with audio and a choice of connection.
+
+- **USB** — Connect a data cable, unlock the iPhone and choose **Trust** when prompted. If this PC has not been configured for wired capture, click **Настроить USB в Windows**, select the phone in the driver utility and set up the per-device USB capture filter. Return to Morror, select the iPhone and click **Начать трансляцию**. The USB driver utility may need an administrator, and downloads Apple USB support from Apple when needed. Compatibility depends on the device, iOS version and Windows driver policy.
+- **Wi-Fi** — Connect the iPhone and PC to the same private network. Choose **Wi-Fi · AirPlay** and click **Запустить AirPlay**. Allow the receiver on private networks if Windows Firewall asks. On the iPhone, open **Control Center → Screen Mirroring** and choose **Morror**. Stop mirroring or close the Morror iPhone window to end the session.
+
+The iPhone window uses [iPhoneMirror v1.8.3](https://github.com/RayrenSX/iPhoneMirror/tree/v1.8.3). [Apple's AirPlay instructions](https://support.apple.com/en-us/102661) explain how to find Screen Mirroring on the phone.
 
 ## Mirror Android on your PC
 
@@ -85,7 +96,7 @@ For older devices, connect and authorize USB first, then use **USB → Wi-Fi** i
 | Lower load | 720 px | 30 FPS | 4 Mbps |
 | Sharp | 1920 px | 60 FPS | 16 Mbps |
 
-Settings also expose 2K, QHD, 4K, original resolution, higher FPS limits and an uncapped mode. Actual frame rate depends on the device, encoder and connection. Higher limits increase load; a configured limit is not a measured performance claim. Settings apply on the next mirroring session.
+Settings also expose 2K, QHD, 4K, original resolution, higher FPS limits and an uncapped mode. Actual frame rate depends on the device, encoder and connection. Higher limits increase load; a configured limit is not a measured performance claim. Morror saves mirroring preferences as you change them and restores them at startup. Video quality applies on the next mirroring session.
 
 The default `--keyboard=uhid` mode supports physical-keyboard layouts, including Russian and English. During mirroring, press **Alt+K** to configure Android's physical keyboard. Language switching is usually **Ctrl+Space**; Android layouts are independent of Windows layouts. A compatible SDK keyboard mode is available for devices that cannot use UHID.
 
@@ -136,6 +147,7 @@ Run in PowerShell from the repository root:
 ./scripts/get-qr-dependencies.ps1 -IncludeTests
 ./scripts/get-native-monitor-dependencies.ps1 -BuildTools
 ./scripts/build-android-monitor.ps1
+./scripts/get-iphone-dependencies.ps1
 ./build.ps1 -Test
 ./scripts/test-second-screen.ps1
 ./scripts/get-installer-tools.ps1
@@ -144,7 +156,9 @@ Run in PowerShell from the repository root:
 
 The desktop build uses the .NET Framework C# compiler; a separate .NET SDK is not required. Android builds use a pinned JDK and Android SDK without Gradle. Dependency archives are pinned by version and SHA-256. Toolchains and downloaded archives stay in ignored directories. The APK signing key is created locally under `tools/native-monitor`; preserve it for compatible APK updates and do not commit it.
 
-Outputs go to `dist/Morror-0.9.2`. `build.ps1` accepts `-OutputDirectory`. The Android APK, native encoder, signed driver package and licenses are included in the Windows payload.
+Outputs go to `dist/Morror-<version>`. `build.ps1` accepts `-OutputDirectory`. The Android APK, native encoder, signed driver package and licenses are included in the Windows payload.
+
+For each Windows release, bump `AppVersion.Number` in `src/AssemblyInfo.cs` and the assembly identity in `src/app.manifest`, then build the installer. Attach `Morror-<version>-Setup-win64.exe` to the stable GitHub release tagged `v<version>` in `Lisichkinoff/Morror`. The updater reads the asset size and SHA‑256 digest from the GitHub Releases API. Publish the release as latest after the installer finishes uploading.
 
 ## Validation
 

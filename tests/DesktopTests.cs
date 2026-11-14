@@ -60,7 +60,9 @@ class DesktopTests
                 window = Field<Window>(controller, "window");
                 Check(((CheckBox)window.FindName("AutoTray")).IsChecked == true, "Auto-hide is enabled in the shipped XAML");
                 Check(((CheckBox)window.FindName("ClipboardSync")).IsChecked == true, "Shared text clipboard is enabled in the shipped UI");
+                CheckSettingsPersistence();
                 window.Show();
+                CheckUpdateNotice(controller, window);
                 await Until(() => ((TextBlock)window.FindName("DeviceAndroid")).Text == "Android 15");
                 Check(((TextBlock)window.FindName("DeviceResolution")).Text == "1440 × 3120" && ((TextBlock)window.FindName("DeviceModel")).Text == "Galaxy S24", "Selected phone supplies the live device card instead of a fixed brand profile");
                 Check(((ComboBox)window.FindName("Quality")).SelectedIndex == 1 && ((ComboBox)window.FindName("FrameRate")).SelectedIndex == 2, "Shipped balanced mode limits capture to HD and 60 FPS");
@@ -221,5 +223,94 @@ class DesktopTests
         };
         application.Run();
         return result;
+    }
+
+    static void CheckSettingsPersistence()
+    {
+        string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var first = OpenSettingsFixture(path);
+            try
+            {
+                ((ComboBox)first.FindName("StreamPreset")).SelectedIndex = 2;
+                var preset = StreamSettings.Load(path);
+                Check((int)preset["StreamPreset"] == 2 && (int)preset["Quality"] == 2 && (int)preset["FrameRate"] == 2,
+                    "A preset change saves its final resolution and frame rate together");
+
+                ((ComboBox)first.FindName("FrameRate")).SelectedIndex = 8;
+                ((ComboBox)first.FindName("KeyboardMode")).SelectedIndex = 1;
+                ((CheckBox)first.FindName("Control")).IsChecked = false;
+                ((CheckBox)first.FindName("AutoTray")).IsChecked = false;
+                ((CheckBox)first.FindName("AlwaysOnTop")).IsChecked = true;
+                ((CheckBox)first.FindName("Audio")).IsChecked = false;
+            }
+            finally { first.Close(); }
+
+            var restored = OpenSettingsFixture(path);
+            try
+            {
+                Check(((ComboBox)restored.FindName("Quality")).SelectedIndex == 2 &&
+                    ((ComboBox)restored.FindName("FrameRate")).SelectedIndex == 8 &&
+                    ((ComboBox)restored.FindName("StreamPreset")).SelectedIndex == 3 &&
+                    ((ComboBox)restored.FindName("KeyboardMode")).SelectedIndex == 1,
+                    "Next launch restores custom resolution, frame rate, preset and keyboard mode");
+                Check(((CheckBox)restored.FindName("Control")).IsChecked == false &&
+                    ((CheckBox)restored.FindName("AutoTray")).IsChecked == false &&
+                    ((CheckBox)restored.FindName("AlwaysOnTop")).IsChecked == true &&
+                    ((CheckBox)restored.FindName("Audio")).IsChecked == false &&
+                    !((CheckBox)restored.FindName("ClipboardSync")).IsEnabled,
+                    "Next launch restores switches and updates dependent controls before connecting a phone");
+            }
+            finally { restored.Close(); }
+
+            File.WriteAllText(path, "{\"Quality\":999,\"AutoTray\":false}");
+            var partial = OpenSettingsFixture(path);
+            try
+            {
+                Check(((ComboBox)partial.FindName("Quality")).SelectedIndex == 1 &&
+                    ((CheckBox)partial.FindName("AutoTray")).IsChecked == false,
+                    "An invalid saved value leaves its default while valid settings still load");
+            }
+            finally { partial.Close(); }
+        }
+        finally { File.Delete(path); }
+    }
+
+    static Window OpenSettingsFixture(string path)
+    {
+        var controller = new Morror.App("Local\\Morror.Tests." + Guid.NewGuid().ToString("N"), false, path);
+        Invoke(controller, "Initialize");
+        return Field<Window>(controller, "window");
+    }
+
+    static void CheckUpdateNotice(Morror.App controller, Window window)
+    {
+        const string tag = "v9.10.0";
+        const string url = "https://github.com/Lisichkinoff/Morror/releases/download/v9.10.0/Morror-9.10.0-Setup-win64.exe";
+        string json = "{\"tag_name\":\"" + tag + "\",\"draft\":false,\"prerelease\":false,\"assets\":[{" +
+            "\"name\":\"Morror-9.10.0-Setup-win64.exe\",\"state\":\"uploaded\",\"size\":52400000," +
+            "\"browser_download_url\":\"" + url + "\",\"digest\":\"sha256:" + new string('a', 64) + "\"}]}";
+        var installed = new Version(9, 9, 0);
+        var update = AppUpdate.ParseRelease(json, installed);
+        Check(update != null && update.Version == new Version(9, 10, 0), "Stable release is compared numerically and selects its Windows installer");
+        Check(AppUpdate.ParseRelease(json, new Version(9, 10, 0, 0)) == null && AppUpdate.ParseRelease(json, new Version(9, 11, 0)) == null,
+            "Current and older releases are ignored");
+        Check(AppUpdate.ParseRelease(json.Replace("\"prerelease\":false", "\"prerelease\":true"), installed) == null &&
+            AppUpdate.ParseRelease(json.Replace("\"draft\":false", "\"draft\":true"), installed) == null &&
+            AppUpdate.ParseRelease(json.Replace(tag, tag + "-rc.1"), installed) == null, "Drafts and prereleases are ignored");
+        Check(AppUpdate.ParseRelease(json.Replace("https://github.com/", "https://example.com/"), installed) == null &&
+            AppUpdate.ParseRelease(json.Replace("Setup-win64.exe", "win64.zip"), installed) == null &&
+            AppUpdate.ParseRelease(json.Replace(new string('a', 64), ""), installed) == null, "Updater requires the official installer URL and SHA-256");
+
+        var notice = (Border)window.FindName("UpdateNotice");
+        Check(!notice.IsVisible, "Update notice starts hidden");
+        controller.GetType().GetMethod("ShowUpdate", Flags).Invoke(controller, new object[] { update });
+        var later = (System.Windows.Controls.Button)window.FindName("LaterUpdate");
+        var download = (System.Windows.Controls.Button)window.FindName("DownloadUpdate");
+        Check(notice.IsVisible && ((TextBlock)window.FindName("UpdateTitle")).Text.Contains("9.10.0") &&
+            (string)download.Content == "Скачать" && (string)later.Content == "Позже", "New release shows the download and defer actions");
+        later.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+        Check(!notice.IsVisible, "Later dismisses the update notice");
     }
 }

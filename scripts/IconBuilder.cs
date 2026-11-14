@@ -19,16 +19,16 @@ class IconBuilder
         {
             using (var g = Graphics.FromImage(large))
             using (var frame = Rounded(8, 8, 240, 240, 52))
-            using (var bg = new LinearGradientBrush(new Rectangle(8, 8, 240, 240), Color.FromArgb(35,54,46), Color.FromArgb(16,25,31), 65))
-            using (var mint = new LinearGradientBrush(new Rectangle(40,40,176,176), Color.FromArgb(220,255,230), Color.FromArgb(137,215,172), 65))
-            using (var edge = new Pen(Color.FromArgb(62,88,75), 2))
-            using (var diamond = new Pen(mint, 12) { LineJoin = LineJoin.Round })
-            using (var letter = new Pen(Color.FromArgb(186,243,207), 12) { LineJoin = LineJoin.Round, StartCap = LineCap.Round, EndCap = LineCap.Round })
+            using (var bg = new LinearGradientBrush(new Rectangle(8, 8, 240, 240), Color.FromArgb(72,57,118), Color.FromArgb(34,35,45), 65))
+            using (var lavender = new LinearGradientBrush(new Rectangle(43,43,170,170), Color.FromArgb(220,208,255), Color.FromArgb(153,128,242), 65))
+            using (var edge = new Pen(Color.FromArgb(112,93,159), 4))
+            using (var diamond = new Pen(lavender, 16) { LineJoin = LineJoin.Round })
+            using (var letter = new Pen(Color.FromArgb(244,237,255), 16) { LineJoin = LineJoin.Round, StartCap = LineCap.Round, EndCap = LineCap.Round })
             {
                 g.Clear(Color.Transparent); g.SmoothingMode = SmoothingMode.AntiAlias; g.ScaleTransform(4, 4);
                 g.FillPath(bg, frame); g.DrawPath(edge, frame);
-                g.DrawPolygon(diamond, new[] { new PointF(128,40), new PointF(216,128), new PointF(128,216), new PointF(40,128) });
-                g.DrawLines(letter, new[] { new PointF(94,151), new PointF(94,104), new PointF(128,135), new PointF(162,104), new PointF(162,151) });
+                g.DrawPolygon(diamond, new[] { new PointF(128,43), new PointF(213,128), new PointF(128,213), new PointF(43,128) });
+                g.DrawLines(letter, new[] { new PointF(94,151), new PointF(94,106), new PointF(128,135), new PointF(162,106), new PointF(162,151) });
             }
             var output = new Bitmap(size, size, PixelFormat.Format32bppArgb);
             using (var g = Graphics.FromImage(output)) { g.InterpolationMode = InterpolationMode.HighQualityBicubic; g.CompositingQuality = CompositingQuality.HighQuality; g.DrawImage(large, new Rectangle(0,0,size,size)); }
@@ -51,9 +51,9 @@ class IconBuilder
         }
         using (var small = new Bitmap(56,56)) using (var g = Graphics.FromImage(small)) using (var icon = Render(52)) { g.Clear(Color.White); g.DrawImage(icon,2,2); small.Save(Path.Combine(directory,"wizard-small.bmp"),ImageFormat.Bmp); }
         using (var banner = new Bitmap(164,314)) using (var g = Graphics.FromImage(banner))
-        using (var bg = new LinearGradientBrush(new Rectangle(0,0,164,314),Color.FromArgb(28,49,39),Color.FromArgb(13,19,24),90))
+        using (var bg = new LinearGradientBrush(new Rectangle(0,0,164,314),Color.FromArgb(57,47,82),Color.FromArgb(34,35,45),90))
         using (var icon = Render(96)) using (var title = new Font("Segoe UI",23,FontStyle.Bold)) using (var text = new Font("Segoe UI",12))
-        using (var muted = new SolidBrush(Color.FromArgb(169,195,184))) using (var format = new StringFormat { Alignment = StringAlignment.Center })
+        using (var muted = new SolidBrush(Color.FromArgb(200,189,223))) using (var format = new StringFormat { Alignment = StringAlignment.Center })
         {
             g.FillRectangle(bg,0,0,164,314); g.SmoothingMode = SmoothingMode.AntiAlias; g.DrawImage(icon,34,49);
             g.DrawString("morror",title,Brushes.White,new RectangleF(0,157,164,40),format);

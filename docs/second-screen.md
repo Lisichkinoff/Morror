@@ -1,4 +1,4 @@
-# Native second monitor · Morror 0.9.2
+# Native second monitor · Morror 0.9.3
 
 An Android phone or tablet can act as an extended Windows display. Windows applications remain ordinary desktop applications; Android runs the native **Morror Monitor** receiver, without a browser or WebView. The Windows UI currently uses Russian labels.
 
@@ -9,6 +9,10 @@ An Android phone or tablet can act as an extended Windows display. Windows appli
 3. Connect and authorize Android by USB or Wi-Fi, select the device and enable the second monitor.
 4. Morror installs its APK before configuring the Windows display, then starts the receiver once the display is ready. Some Android vendors require a separate setting that allows installation through USB debugging.
 5. Move a Windows application onto the virtual monitor, which is attached to the right of the existing desktop when Morror activates it.
+
+Open **«Скачать Morror Монитор на Android по QR-коду»** in the second-screen window. Select an authorized Android device connected by USB or wireless debugging. Morror transfers the bundled APK through that connection. Scan the download QR with the camera on the selected phone or click **«Установить на подключённый Android»** to install it from Windows.
+
+To download before pairing, select your PC's address on the same local network as your phone. If Windows Firewall blocks the connection, **«Разрешить скачивание в Windows»** requests a temporary rule scoped to the current app, address, port and local subnet. Scan the download code with the Android camera, open the APK and confirm installation. The code expires after five minutes or when you close the section.
 
 Requirements: Windows 10/11 x64, .NET Framework 4.8, Windows Media Foundation, Android 8.0+ and H.264 decoding through Android MediaCodec. The display component and the first registration of a previously unsupported display size require administrator approval. Root access on Android is not required.
 
@@ -42,7 +46,7 @@ Video, audio and touch share a session-owned `adb reverse --no-rebind tcp:<port>
 
 ## Wi-Fi and QR pairing
 
-Select Wi-Fi and **«Подключить телефон по QR-коду»**. On Android 11+, open **Developer options → Wireless debugging → Pair device with QR code**, then use that system scanner. This is the same pairing flow used for Android mirroring. A previously authorized wireless device can simply be selected from the list.
+Select Wi-Fi and **«Беспроводная отладка · QR или код»**. On Android 11+, open **Developer options → Wireless debugging → Pair device with QR code**, then scan from that screen. The regular camera may interpret this pairing QR as a Wi-Fi network. Select a previously authorized wireless device directly from the device list. If discovery fails, expand **«Подключиться по коду или IP:порту»**. The Android pairing window displays the six-digit code and pairing address. The main Wireless debugging screen displays the address used to connect after pairing.
 
 After pairing, Morror installs and starts the receiver through ADB. The native stream travels over an ADB reverse tunnel through the authorized connection. Modern Android QR/TLS pairing provides the wireless-debugging transport encryption; no cloud relay or public HTTP server is used. Legacy `adb tcpip` connections should be used only on trusted networks.
 
@@ -58,7 +62,7 @@ The current client uses landscape orientation. Automatic monitor rotation, pen p
 
 The Windows host captures the virtual display directly and encodes H.264 using a separate LGPL FFmpeg process. Encoder probing tries NVIDIA NVENC, hardware Media Foundation and software Media Foundation. Available quality levels are native, HD and Full HD, with 30/60 FPS targets. Configuration targets are not guarantees of sustained FPS or latency.
 
-The performance hotfix probes encoders using the requested session dimensions and bitrate. The previous 128 × 128 probe could incorrectly reject NVENC on an RTX 4070 and select CPU encoding. NVENC uses no lookahead or output-frame delay, the capture input queue is bounded, and Android drains decoded frames independently of the network receiver. While connected, the Windows status reports the rate of frames submitted for rendering on Android; this is not a measurement of end-to-end latency.
+The encoder probe uses the requested resolution and bitrate. On supported NVIDIA setups, Morror probes Desktop Duplication on the selected virtual display and passes GPU frames directly to NVENC. GDI capture covers other configurations. Video frames are sent as soon as the encoder outputs them. Under congestion, the Windows sender drops queued frames and resumes at the next IDR. Android skips late decoded frames. The Windows status reports the rate of frames submitted for rendering on Android.
 
 Before changing, registering or detaching a virtual display, Morror captures active physical display modes, including refresh rates. If Windows changes those modes, Morror reapplies and verifies their original settings; failure stops setup with an explanation. This protection is covered by a simulated 240 → 60 → 240 Hz regression. Behavior on other physical 240 Hz displays still requires hardware validation.
 
@@ -66,7 +70,9 @@ Android decodes through MediaCodec into a SurfaceView. Its screen stays awake du
 
 Audio is the current default Windows output mix, captured through WASAPI loopback and sent as stereo PCM float to Android AudioTrack. It can include other applications. Morror does not change the default audio endpoint or Windows volume.
 
-Stop closes the encoder, stream, touch filter and only the session's own ADB reverse port. The selected Morror virtual monitor is detached, including when a previous failed session left it active. Losing an authenticated receiver also ends the session automatically. Missing control heartbeats close a half-open connection after six seconds; a receiver that never connects has a twenty-second setup timeout. The driver and Android application stay installed for later use. Restart the session after changing the display arrangement.
+Stop closes the encoder, stream, touch filter and the session's ADB reverse port. Losing an authenticated receiver triggers cleanup immediately. A half-open connection times out after three seconds without a control heartbeat. A receiver that never connects has a twenty-second setup timeout.
+
+Starting the second screen requests Windows administrator approval to enable MttVDD for that session. The helper disables it when the session ends or Morror exits. If an older build left the virtual display listed in Windows, open **Второй экран → Скрыть виртуальный монитор** and confirm the Windows prompt once. Restart the session after changing the display arrangement.
 
 The APK uses a local build signing key under the ignored `tools/native-monitor` directory. Preserve that key for APK updates. Android may require manual removal of an older Morror Monitor APK if a replacement was signed with a different key.
 

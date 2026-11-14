@@ -27,20 +27,47 @@ class SecondScreenTests
     static void Check(bool ok,string message){if(!ok)throw new Exception(message);checks++;Console.WriteLine("PASS "+message);}
     static ScreenContact Contact(){return new ScreenContact{id=1,x=.5,y=.5};}
     static ScreenTouchFrame Frame(string type,long sequence){return new ScreenTouchFrame{type=type,sequence=sequence,generation=0,points=type=="end"||type=="cancel"?new ScreenContact[0]:new[]{Contact()}};}
-    static bool Nal(byte[] bytes,int type){for(int i=0;i+4<bytes.Length;i++){int p=H264AccessUnits.Prefix(bytes,i);if(p>0&&(bytes[i+p]&31)==type)return true;}return false;}
+    static bool Nal(byte[] bytes,int type){return MonitorVideoReader.HasNal(bytes,type);}
     static async Task Until(Func<bool> condition,string message){var clock=Stopwatch.StartNew();while(!condition()){if(clock.ElapsedMilliseconds>10000)throw new TimeoutException(message);await Task.Delay(30);}}
-    static void Protocol()
+    sealed class FragmentedStream : MemoryStream
+    {
+        internal FragmentedStream(byte[] bytes) : base(bytes) { }
+        public override Task<int> ReadAsync(byte[] bytes,int offset,int count,CancellationToken cancellation)
+        { return base.ReadAsync(bytes,offset,Math.Min(2,count),cancellation); }
+    }
+    static async Task Protocol()
     {
         var header=MonitorWire.Header(16,5,0x0102030405060708);Check(MonitorWire.Length(header)==14&&header[4]==16&&header[5]==1&&header[12]==8,"Native wire uses network byte order and explicit packet bounds");
         bool invalid=false;try{MonitorWire.Length(new byte[]{255,255,255,255});}catch(IOException){invalid=true;}Check(invalid,"Reject oversized native packets before allocation");
         var state=new ScreenTouchState();Check(!state.Accept(Frame("move",1))&&state.Accept(Frame("start",1))&&state.Accept(Frame("move",2))&&state.Accept(Frame("end",3)),"Native touch requires ordered down/move/up");
         Check(!state.Accept(Frame("start",2)),"Reject replayed touch packets");
         Check(SecondScreenProtocol.MapToScreen(new ScreenContact{x=1,y=1},new Rectangle(-1920,0,1920,1080))==new Point(-1,1079),"Native touch maps negative virtual-monitor coordinates");
-        byte[] sample={0,0,0,1,0x67,0x42,0x10,0,0,1,0x68,0x12,0,0,0,1,9,0xf0,0,0,1,0x65,0xaa,0xbb,0,0,0,1,9,0xf0,0,0,1,0x41,0xcc,0xdd};
-        for(int split=1;split<=sample.Length;split++){
-            var parser=new H264AccessUnits();var frames=new List<byte[]>();
-            for(int i=0;i<sample.Length;i+=split){byte[] chunk=sample.Skip(i).Take(split).ToArray();frames.AddRange(parser.Push(chunk,chunk.Length));}frames.AddRange(parser.Push(new byte[0],0,true));
-            Check(frames.Count==2&&Nal(frames[0],7)&&Nal(frames[0],8)&&Nal(frames[0],5)&&Nal(frames[1],1),"H.264 access units survive fragment size "+split);
+        byte[] idr={0,0,0,1,0x67,0x42,0,0,1,0x68,0x12,0,0,1,0x65,0x42,0x42};
+        byte[] delta={0,0,1,0x41};
+        byte[] sample;
+        using(var bytes=new MemoryStream())
+        using(var writer=new BinaryWriter(bytes))
+        {
+            writer.Write(Encoding.ASCII.GetBytes("RIFF"));writer.Write(uint.MaxValue);
+            writer.Write(Encoding.ASCII.GetBytes("AVI LIST"));writer.Write(uint.MaxValue);
+            writer.Write(Encoding.ASCII.GetBytes("movi00dc"));writer.Write(idr.Length);writer.Write(idr);writer.Write((byte)0);
+            sample=bytes.ToArray();
+        }
+        using(var stream=new FragmentedStream(sample))
+        {
+            var reader=new MonitorVideoReader(stream);
+            var frame=await reader.ReadFrame(CancellationToken.None);
+            Check(frame.SequenceEqual(idr)&&Nal(frame,5)&&Nal(frame,7)&&Nal(frame,8),"An AVI frame survives fragmented reads and is sent without waiting for the next frame");
+        }
+        using(var queue=new MonitorVideoQueue())
+        using(var cancel=new CancellationTokenSource(2000))
+        {
+            queue.Add(idr,10);queue.Add(delta,20);queue.Add(delta,30);queue.Add(delta,40);
+            queue.Add(delta,50);queue.Add(idr,60);
+            var sent=new List<long>();
+            try{await queue.Send((frame,pts)=>{sent.Add(pts);cancel.Cancel();return Task.FromResult(0);},cancel.Token);}
+            catch(OperationCanceledException){}
+            Check(sent.SequenceEqual(new[]{60L}),"A congested video queue discards stale frames and resumes at the next IDR");
         }
         byte[] mono=BitConverter.GetBytes((short)-16384);byte[] stereo=WasapiMonitorAudio.StereoFloat(mono,1,1,16,false,2);
         Check(BitConverter.ToSingle(stereo,0)==-.5f&&BitConverter.ToSingle(stereo,4)==-.5f,"System audio converts PCM16 mono to stereo float");
@@ -82,6 +109,8 @@ class SecondScreenTests
         var configured=attached.modes[(int)attached.paths[1].source.mode].data.source;
         Check(configured.width==2400&&configured.height==1080&&configured.x==2560&&attached.paths[1].target.mode==uint.MaxValue,"CCD supplies the requested virtual source and lets Windows choose only its missing target timing");
         var changed=DisplayTopology.CreateAttachment(attached,p=>p.source.adapter.low==2,1920,864,60,2560,0);
+        var detached=DisplayTopology.CreateDetachment(changed,p=>p.source.adapter.low==2);
+        Check(detached.paths.SequenceEqual(new[]{physicalPath})&&detached.modes[1].Equals(targetMode),"Detaching a leftover virtual path preserves the exact physical display path and timings");
         Check(changed.paths.Length==2&&changed.modes.Length==attached.modes.Length&&changed.modes[(int)changed.paths[1].source.mode].data.source.width==1920,"Changing an active virtual mode does not create duplicate source-mode records");
         virtualPath.target.available=0;
         Check(DisplayTopology.CreateAttachment(new DisplayTopology.Snapshot{paths=new[]{physicalPath,virtualPath},modes=topology.modes},p=>p.source.adapter.low==2,2400,1080,60,2560,0)==null,"Unavailable virtual targets are not activated and unrelated displays are not substituted");
@@ -131,6 +160,12 @@ class SecondScreenTests
         string fixture=Assembly.GetExecutingAssembly().Location;
         await AndroidMonitorClient.Install(fixture,"install-success",FixtureApk);
         Check(true,"APK install targets the selected device with -r and preserves a Unicode path with spaces");
+        int phonePort=await AndroidMonitorClient.OpenDownloadTunnel(fixture,"download-phone",51423);
+        Check(phonePort==51424,"APK download asks ADB to allocate a free port on the selected Android");
+        await AndroidMonitorClient.CloseDownloadTunnel(fixture,"download-phone",phonePort);
+        bool badPort=false;
+        try{await AndroidMonitorClient.OpenDownloadTunnel(fixture,"invalid-download-port",51423);}catch(IOException){badPort=true;}
+        Check(badPort,"ADB port allocation must return a valid port before publishing a download QR");
         bool rejected=false;try{await AndroidMonitorClient.Install(fixture,"install-restricted",FixtureApk);}catch(IOException error){rejected=error.Message.Contains("Xiaomi")&&error.Message.Contains("INSTALL_FAILED_USER_RESTRICTED");}
         Check(rejected,"A failed ADB installation propagates the Android reason and installation guidance");
         rejected=false;try{await AndroidMonitorClient.Install(fixture,"install-unconfirmed",FixtureApk);}catch(IOException){rejected=true;}
@@ -231,17 +266,23 @@ class SecondScreenTests
         if(args.Length>0&&args[0]=="-hide_banner")
         {
             int input=Array.IndexOf(args,"-i"),codec=Array.IndexOf(args,"-c:v"),rate=Array.IndexOf(args,"-b:v");
-            return input>=0&&codec>=0&&rate>=0&&args[input+1]=="color=black:s=3200x2136:r=60"&&args[codec+1]=="h264_nvenc"&&args[rate+1]=="10M"?0:1;
+            return input>=0&&codec>=0&&rate>=0&&args[input+1]=="color=black:s=3200x2136:r=60"&&args[codec+1]=="h264_nvenc"&&args[rate+1]=="18000k"?0:1;
         }
         // Acts only as a child-process fixture; never invokes ADB or touches Android.
         if(args.Length>0&&args[0]=="-s")
         {
+            if(args.Length==6&&args[2]=="reverse"&&args[3]=="--no-rebind"&&args[4]=="tcp:0"&&args[5]=="tcp:51423")
+            {
+                Console.WriteLine(args[1]=="download-phone"?"51424":"65536");
+                return 0;
+            }
+            if(args.SequenceEqual(new[]{"-s","download-phone","reverse","--remove","tcp:51424"}))return 0;
             if(args.Length!=5||args[2]!="install"||args[3]!="-r"||args[4]!=FixtureApk)return 2;
             if(args[1]=="install-restricted"){Console.Error.WriteLine("Failure [INSTALL_FAILED_USER_RESTRICTED]");return 1;}
             Console.WriteLine(args[1]=="install-success"?"Success":"Success is still pending");return 0;
         }
         int result=1;var application=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};application.Startup+=async(s,e)=>{
-            try{Protocol();Resolution();PhysicalRefreshRate();FreshScreenGeometry();InstallationErrors();await InstallationCommands();Ui();VirtualMonitorDriver.VerifyBundle(args[1]);Check(true,"Bundled display driver files match pinned hashes and a trusted Windows catalog signature");await NativeTouch();string codec=await NativeMonitorEncoder.Select(args[0],CancellationToken.None);Console.WriteLine("Encoder: "+codec);await Network(args[0],codec);await DisconnectCleanup(args[0],codec);Console.WriteLine(checks+" native monitor checks passed.");result=0;}catch(Exception error){Console.WriteLine(error);}finally{application.Shutdown();}
+            try{await Protocol();Resolution();PhysicalRefreshRate();FreshScreenGeometry();InstallationErrors();await InstallationCommands();Ui();VirtualMonitorDriver.VerifyBundle(args[1]);Check(true,"Bundled display driver files match pinned hashes and a trusted Windows catalog signature");string codec=await NativeMonitorEncoder.Select(args[0],CancellationToken.None);Console.WriteLine("Encoder: "+codec);await Network(args[0],codec);await DisconnectCleanup(args[0],codec);await NativeTouch();Console.WriteLine(checks+" native monitor checks passed.");result=0;}catch(Exception error){Console.WriteLine(error);}finally{application.Shutdown();}
         };application.Run();return result;
     }
 }
