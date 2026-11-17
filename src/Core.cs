@@ -81,13 +81,16 @@ namespace Morror
             return null;
         }
 
-        public static string[] MirrorArguments(string serial, int quality, int fps, bool audio, bool control, bool alwaysOnTop = false, bool clipboardSync = true, bool physicalKeyboard = true, bool screenOff = false)
+        public static string[] MirrorArguments(string serial, int quality, int fps, bool audio, bool control, bool alwaysOnTop = false, bool clipboardSync = true, bool physicalKeyboard = true, bool screenOff = false, bool wireless = false)
         {
             if (quality < 0 || quality >= MaxEdges.Length || !new[] { 0, 30, 60, 90, 120, 144, 165, 180, 240 }.Contains(fps)) throw new ArgumentException("Некорректные параметры трансляции.");
             var result = new List<string> { "--serial=" + serial, "--window-title=Morror — Android", "--print-fps", "--video-codec=h264", "--video-bit-rate=" + VideoRates[quality] };
             if (fps != 0) result.Add("--max-fps=" + fps);
             if (MaxEdges[quality] != 0) result.Add("--max-size=" + MaxEdges[quality]);
             if (!audio) result.Add("--no-audio");
+            // Wi-Fi packet jitter needs more headroom than scrcpy's 50 ms default.
+            // Keep USB latency unchanged and do not buffer video/control input.
+            else if (wireless) result.Add("--audio-buffer=120");
             if (!control) result.Add("--no-control");
             else result.Add(physicalKeyboard ? "--keyboard=uhid" : "--keyboard=sdk");
             if (screenOff && control) result.Add("--turn-screen-off");

@@ -31,10 +31,11 @@ if (!(Test-Path -LiteralPath (Join-Path $iphoneSource 'iPhoneMirror.Core.dll')))
 $iphoneRuntime = Join-Path $runtime 'iphone'
 New-Item -ItemType Directory -Path $iphoneRuntime -Force | Out-Null
 Copy-Item -Path (Join-Path $iphoneSource '*') -Destination $iphoneRuntime -Recurse -Force
-$iphoneSources = @('IPhoneApp.cs','IPhoneMirrorDialog.cs','IPhoneMirrorEngine.cs','AssemblyInfo.cs') | ForEach-Object { Join-Path $projectRoot ('src\' + $_) }
+$iphoneSources = @('IPhoneApp.cs','IPhoneMirrorDialog.cs','IPhoneMirrorEngine.cs','IPhoneNetwork.cs','AssemblyInfo.cs') | ForEach-Object { Join-Path $projectRoot ('src\' + $_) }
+$iphoneReferences = $references + ('/reference:' + (Join-Path $framework 'Microsoft.CSharp.dll'))
 $iphoneWindow = '/resource:' + (Join-Path $projectRoot 'src\IPhoneWindow.xaml') + ',IPhoneWindow.xaml'
 $iphoneTheme = '/resource:' + (Join-Path $projectRoot 'src\MainWindow.xaml') + ',MainWindow.xaml'
-& $compiler /nologo /target:winexe /platform:x64 /main:Morror.IPhoneApp /optimize+ /utf8output ("/out:" + (Join-Path $iphoneRuntime 'Morror.iPhone.exe')) ("/win32icon:" + $icon) $iphoneTheme $iphoneWindow $iconResource ("/win32manifest:" + (Join-Path $projectRoot 'src\app.manifest')) $references $iphoneSources
+& $compiler /nologo /target:winexe /platform:x64 /main:Morror.IPhoneApp /optimize+ /utf8output ("/out:" + (Join-Path $iphoneRuntime 'Morror.iPhone.exe')) ("/win32icon:" + $icon) $iphoneTheme $iphoneWindow $iconResource ("/win32manifest:" + (Join-Path $projectRoot 'src\app.manifest')) $iphoneReferences $iphoneSources
 if ($LASTEXITCODE -ne 0) { throw 'Ошибка компиляции компонента iPhone.' }
 $nativeApk = Join-Path $nativeTools 'MorrorMonitor.apk'
 $nativeEncoder = Get-ChildItem -LiteralPath (Join-Path $nativeTools 'ffmpeg') -Filter ffmpeg.exe -Recurse -File | Select-Object -First 1 -ExpandProperty FullName
@@ -86,6 +87,16 @@ Copy-Item -LiteralPath (Join-Path $projectRoot 'tools\qrcoder-1.8.1\LICENSE.txt'
 if ($Test) {
     $testOutput = Join-Path $projectRoot 'test-output'
     New-Item -ItemType Directory -Force -Path $testOutput | Out-Null
+    $iphoneTestExe = Join-Path $testOutput 'Morror.IPhoneTests.exe'
+    & $compiler /nologo /target:exe /platform:x64 /main:IPhoneTests /utf8output ("/out:" + $iphoneTestExe) $iphoneTheme $iphoneWindow $iconResource $iphoneReferences $iphoneSources (Join-Path $projectRoot 'tests\IPhoneTests.cs')
+    if ($LASTEXITCODE -ne 0) { throw 'Ошибка компиляции проверок iPhone.' }
+    & $iphoneTestExe
+    if ($LASTEXITCODE -ne 0) { throw 'Проверки iPhone завершились с ошибкой.' }
+    $iphoneProcessTestExe = Join-Path $testOutput 'Morror.IPhoneProcessTests.exe'
+    & $compiler /nologo /target:exe /platform:x64 /utf8output ("/out:" + $iphoneProcessTestExe) (Join-Path $projectRoot 'tests\IPhoneProcessTests.cs')
+    if ($LASTEXITCODE -ne 0) { throw 'Ошибка компиляции проверок процесса iPhone.' }
+    & $iphoneProcessTestExe (Join-Path $iphoneRuntime 'Morror.iPhone.exe')
+    if ($LASTEXITCODE -ne 0) { throw 'Проверки процесса iPhone завершились с ошибкой.' }
     $testExe = Join-Path $testOutput 'Morror.Tests.exe'
     & $compiler /nologo /target:exe /platform:x64 /utf8output ("/out:" + $testExe) /reference:System.dll /reference:System.Core.dll (Join-Path $projectRoot 'src\Core.cs') (Join-Path $projectRoot 'tests\CoreTests.cs')
     if ($LASTEXITCODE -ne 0) { throw 'Ошибка компиляции проверок.' }

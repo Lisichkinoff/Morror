@@ -228,7 +228,7 @@ namespace Morror
             Get<Button>("StopButton").Click += (s, e) => Stop();
             Get<Button>("TransferButton").Click += (s, e) => OpenTransfer();
             Get<Button>("SecondScreenButton").Click += (s, e) => new SecondScreenDialog(window, Adb, Get<ComboBox>("Devices").SelectedItem as Device).Show();
-            Get<Button>("IPhoneButton").Click += (s, e) => OpenIPhone();
+            Get<Button>("IPhoneButton").Click += async (s, e) => await OpenIPhone();
             Get<CheckBox>("Control").Checked += (s, e) => UpdateButtons();
             Get<CheckBox>("Control").Unchecked += (s, e) => UpdateButtons();
             Get<CheckBox>("AlwaysOnTop").Checked += (s, e) => ApplyPin();
@@ -407,17 +407,18 @@ namespace Morror
             }
         }
 
-        void OpenIPhone()
+        bool iPhoneOpening;
+        async Task OpenIPhone()
         {
-            if (iPhoneWindow != null && !iPhoneWindow.HasExited)
-            {
-                iPhoneWindow.Refresh();
-                var handle = iPhoneWindow.MainWindowHandle;
-                if (handle != IntPtr.Zero) { ShowWindow(handle, 9); SetForegroundWindow(handle); }
-                return;
-            }
+            if (iPhoneOpening) return;
+            iPhoneOpening = true;
             try
             {
+                if (iPhoneWindow != null && !iPhoneWindow.HasExited)
+                {
+                    await ActivateIPhone(iPhoneWindow);
+                    return;
+                }
                 string executable = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "runtime", "iphone", "Morror.iPhone.exe");
                 if (!File.Exists(executable)) throw new IOException("Установите полный пакет Morror с поддержкой iPhone.");
                 int parent;
@@ -437,8 +438,24 @@ namespace Morror
                 };
                 try { process.Start(); iPhoneWindow = process; }
                 catch { process.Dispose(); throw; }
+                await ActivateIPhone(process);
             }
             catch (Exception error) { Notice(error.Message); AddLog(error.Message); }
+            finally { iPhoneOpening = false; }
+        }
+
+        async Task ActivateIPhone(Process process)
+        {
+            // MainWindowHandle is zero during WPF startup. A click must not be lost.
+            for (int attempt = 0; attempt < 100 && !closing; attempt++)
+            {
+                if (iPhoneWindow != process || process.HasExited) return;
+                process.Refresh();
+                var handle = process.MainWindowHandle;
+                if (handle != IntPtr.Zero) { ShowWindow(handle, 9); SetForegroundWindow(handle); return; }
+                await Task.Delay(100);
+            }
+            if (!closing) Notice("Окно iPhone ещё запускается. Повторите нажатие через несколько секунд.");
         }
 
         [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool ShowWindow(IntPtr window, int command);
@@ -746,7 +763,7 @@ namespace Morror
                 }
                 if (closing) return;
                 int fps = SelectedFrameRate();
-                var args = Protocol.MirrorArguments(device.Serial, Get<ComboBox>("Quality").SelectedIndex, fps, audio, Get<CheckBox>("Control").IsChecked == true, Get<CheckBox>("AlwaysOnTop").IsChecked == true, Get<CheckBox>("ClipboardSync").IsChecked == true, Get<ComboBox>("KeyboardMode").SelectedIndex == 0, Get<CheckBox>("ScreenOff").IsChecked == true);
+                var args = Protocol.MirrorArguments(device.Serial, Get<ComboBox>("Quality").SelectedIndex, fps, audio, Get<CheckBox>("Control").IsChecked == true, Get<CheckBox>("AlwaysOnTop").IsChecked == true, Get<CheckBox>("ClipboardSync").IsChecked == true, Get<ComboBox>("KeyboardMode").SelectedIndex == 0, Get<CheckBox>("ScreenOff").IsChecked == true, device.Wireless);
                 launched = new Process { StartInfo = Commands.StartInfo(Path.Combine(runtime, "scrcpy.exe"), args), EnableRaisingEvents = true };
                 launched.StartInfo.EnvironmentVariables["ADB"] = Adb;
                 launched.StartInfo.EnvironmentVariables["SCRCPY_ICON_DIR"] = runtime;

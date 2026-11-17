@@ -32,6 +32,13 @@ class CoreTests
             Check(Protocol.MirrorArguments("ABC", 1, 60, true, true, false, true, false).Contains("--keyboard=sdk"), "Older phones can opt into the compatible keyboard");
             Check(Protocol.MirrorArguments("ABC", 0, 30, true, true, false, true, true, true).Contains("--turn-screen-off") && !Protocol.MirrorArguments("ABC", 0, 30, true, false, false, true, true, true).Contains("--turn-screen-off"), "Optional screen power saving requires enabled control");
             Check(mirror.Contains("--serial=ABC") && mirror.Contains("--max-size=1280") && mirror.Contains("--no-audio") && mirror.Contains("--no-control"), "Device, quality and disabled capabilities");
+            foreach (var device in Protocol.ParseDevices("USB device\n192.168.1.20:37123 device\nadb-xyz._adb-tls-connect._tcp device\n[2001:db8::20]:37123 device"))
+            {
+                var audioArgs = Protocol.MirrorArguments(device.Serial, 1, 60, true, true, wireless: device.Wireless);
+                Check(audioArgs.Contains("--audio-buffer=120") == device.Wireless, "Audio jitter buffer follows actual transport: " + device.Serial);
+                Check(!audioArgs.Any(a => a.StartsWith("--video-buffer=")), "Audio smoothing does not delay video/control");
+            }
+            Check(!Protocol.MirrorArguments("192.168.1.2:5555", 1, 60, false, true, wireless: true).Any(a => a.StartsWith("--audio-buffer=")), "Disabled audio does not request a buffer");
             Check(!Protocol.MirrorArguments("ABC", Protocol.NativeQuality, 30, true, true).Any(a => a.StartsWith("--max-size")), "Original resolution is uncapped");
             foreach (int fps in new[] { 30, 60, 90, 120, 144, 165, 180, 240 })
             {

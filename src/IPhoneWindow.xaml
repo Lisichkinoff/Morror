@@ -8,7 +8,7 @@
     </Grid.RowDefinitions>
     <StackPanel>
       <TextBlock Text="Трансляция экрана iPhone" FontSize="25" FontWeight="SemiBold" Margin="0,0,0,16"/>
-      <ComboBox x:Name="Transport" SelectedIndex="0" AutomationProperties.Name="Подключение iPhone">
+      <ComboBox x:Name="Transport" SelectedIndex="1" AutomationProperties.Name="Подключение iPhone">
         <ComboBoxItem Content="USB · кабель"/><ComboBoxItem Content="Wi-Fi · AirPlay"/>
       </ComboBox>
       <TextBlock x:Name="Instructions" TextWrapping="Wrap" Foreground="#C8BDDF" Margin="0,10,0,14"/>
@@ -25,9 +25,12 @@
       </Grid>
     </Border>
     <StackPanel Grid.Row="3" Margin="0,12,0,0">
+      <TextBlock x:Name="NetworkStatus" TextWrapping="Wrap" Foreground="#C8BDDF" Margin="0,0,0,8"/>
       <TextBlock x:Name="Status" TextWrapping="Wrap" Margin="0,0,0,10" AutomationProperties.LiveSetting="Polite"/>
       <WrapPanel>
         <Button x:Name="Driver" Content="Настроить USB в Windows" Margin="0,0,8,5"/>
+        <Button x:Name="Network" Content="Настроить сеть AirPlay" Margin="0,0,8,5"
+                ToolTip="Разрешить приёмнику AirPlay входящие подключения из локальной подсети в частных сетях. Потребуется подтверждение Windows."/>
         <Button x:Name="Start" Content="Начать трансляцию" Background="#6E58BD" BorderBrush="#9A87E5" Margin="0,0,8,5"/>
         <Button x:Name="Stop" Content="Остановить" IsEnabled="False" Margin="0,0,0,5"/>
       </WrapPanel>

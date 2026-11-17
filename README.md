@@ -4,9 +4,9 @@
 
 Morror combines a Russian-language WPF desktop interface, the official [scrcpy 5.0.1](https://github.com/Genymobile/scrcpy/tree/v5.0.1) runtime for Android-to-PC mirroring, and a native Android receiver for PC-to-Android display extension.
 
-**Latest release: 0.9.3.** Both Windows packages include Android and iPhone mirroring, the native second-monitor APK, the video encoder and the signed virtual display driver.
+**Latest release: 0.9.4.** Both Windows packages include Android and iPhone mirroring, the native second-monitor APK, the video encoder and the signed virtual display driver.
 
-[Published releases](https://github.com/Lisichkinoff/Morror/releases) · [Download 0.9.3 installer](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.3/Morror-0.9.3-Setup-win64.exe) · [Download 0.9.3 portable ZIP](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.3/Morror-0.9.3-win64.zip) · [Second-monitor guide](docs/second-screen.md)
+[Published releases](https://github.com/Lisichkinoff/Morror/releases) · [Download 0.9.4 installer](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.4/Morror-0.9.4-Setup-win64.exe) · [Download 0.9.4 portable ZIP](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.4/Morror-0.9.4-win64.zip) · [Second-monitor guide](docs/second-screen.md)
 
 ## Features
 
@@ -58,7 +58,7 @@ A real Pixel 8 displaying a **synthetic test pattern at 2400 × 1080**, with the
 
 The Windows installer runs per user. Windows asks for administrator approval to install the virtual display component, enable it for a second-screen session, or register a previously unsupported monitor resolution. Root access on Android is not required.
 
-Run `dist/Morror-0.9.3/Morror.exe`, install `dist/Morror-0.9.3-Setup-win64.exe`, or extract the entire `dist/Morror-0.9.3-win64.zip`. Keep the runtime, QRCoder library and license files together.
+Run `dist/Morror-0.9.4/Morror.exe`, install `dist/Morror-0.9.4-Setup-win64.exe`, or extract the entire `dist/Morror-0.9.4-win64.zip`. Keep the runtime, QRCoder library and license files together.
 
 Starting with 0.9.3, Morror checks GitHub Releases in the background on startup. **Скачать** downloads and verifies the installer, applies the update in the current folder, and reopens Morror. **Позже** dismisses the notice until the next launch. To upgrade from 0.9.2 or earlier, exit the running app from its tray menu and install the current version manually once.
 
@@ -68,6 +68,10 @@ Open **iPhone** in the Morror sidebar. This opens a Morror preview with audio an
 
 - **USB** — Connect a data cable, unlock the iPhone and choose **Trust** when prompted. If this PC has not been configured for wired capture, click **Настроить USB в Windows**, select the phone in the driver utility and set up the per-device USB capture filter. Return to Morror, select the iPhone and click **Начать трансляцию**. The USB driver utility may need an administrator, and downloads Apple USB support from Apple when needed. Compatibility depends on the device, iOS version and Windows driver policy.
 - **Wi-Fi** — Connect the iPhone and PC to the same private network. Choose **Wi-Fi · AirPlay** and click **Запустить AirPlay**. Allow the receiver on private networks if Windows Firewall asks. On the iPhone, open **Control Center → Screen Mirroring** and choose **Morror**. Stop mirroring or close the Morror iPhone window to end the session.
+
+If Morror is absent from Screen Mirroring, click **Настроить сеть AirPlay** in the iPhone window and approve the Windows administrator prompt, then start AirPlay again. This adds TCP/UDP rules for the bundled receiver on private networks, limited to the local subnet; any existing block for that exact receiver is removed from the private profile only. It does not change the network category or disable the firewall. Set your trusted home network to **Private** in Windows, use the same router on both devices, and check VPN routing or guest-network client isolation. A running receiver alone does not confirm that the phone can discover it. The iPhone **AirPlay & Continuity** settings page does not start Screen Mirroring.
+
+The iPhone window opens directly in AirPlay mode without USB scanning. Selecting USB performs lightweight device discovery. Native capture errors include their details to help diagnose driver or handshake failures.
 
 The iPhone window uses [iPhoneMirror v1.8.3](https://github.com/RayrenSX/iPhoneMirror/tree/v1.8.3). [Apple's AirPlay instructions](https://support.apple.com/en-us/102661) explain how to find Screen Mirroring on the phone.
 
@@ -87,6 +91,8 @@ Enable **Developer options → USB debugging**, connect a data-capable cable, un
 For manual pairing, use the IP address, pairing port and six-digit code from Android's pairing dialog. The connection port shown on the main Wireless debugging screen is a different port. If mDNS discovery is unavailable, enter that connection address after pairing; the pairing itself remains saved. IPv4 and bracketed IPv6 addresses are supported.
 
 For older devices, connect and authorize USB first, then use **USB → Wi-Fi** in Morror. This enables legacy ADB TCP/IP on port 5555 until the phone restarts. Use a trusted network. Morror does not modify your router or firewall, and does not restart the shared ADB server.
+
+Android-to-PC audio over Wi-Fi uses a 120 ms target buffer to absorb brief packet delays (USB keeps the engine default). This trades a little audio latency for fewer interruptions; video and controls do not receive an extra buffer. Severe network congestion can still cause interruptions.
 
 ### Quality, keyboard and tray controls
 

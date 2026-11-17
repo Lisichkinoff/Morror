@@ -16,7 +16,7 @@ namespace Morror
     internal sealed class IPhoneMirrorDialog
     {
         readonly Window window;
-        readonly IPhoneMirrorEngine engine;
+        readonly IIPhoneMirrorEngine engine;
         readonly DispatcherTimer timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         PreviewHost preview;
         bool busy, listening, closeRequested, allowClose;
@@ -25,13 +25,21 @@ namespace Morror
         bool WiFi { get { return Get<ComboBox>("Transport").SelectedIndex == 1; } }
         void Status(string message) { Get<TextBlock>("Status").Text = message; }
 
-        internal IPhoneMirrorDialog(string directory)
+        internal IPhoneMirrorDialog(string directory) : this(new IPhoneMirrorEngine(directory)) { }
+
+        internal IPhoneMirrorDialog(IIPhoneMirrorEngine engine)
         {
-            engine = new IPhoneMirrorEngine(directory);
+            this.engine = engine;
             using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("IPhoneWindow.xaml"))
                 window = (Window)XamlReader.Load(stream);
             using (var style = Assembly.GetExecutingAssembly().GetManifestResourceStream("MainWindow.xaml"))
-                window.Resources.MergedDictionaries.Add(((Window)XamlReader.Load(style)).Resources);
+            {
+                var themeWindow = (Window)XamlReader.Load(style);
+                window.Resources.MergedDictionaries.Add(themeWindow.Resources);
+                // XamlReader registers even an unshown Window with Application.
+                // Keeping this temporary window alive prevents normal process exit.
+                themeWindow.Close();
+            }
             using (var icon = Assembly.GetExecutingAssembly().GetManifestResourceStream("Morror.ico"))
                 window.Icon = System.Windows.Media.Imaging.BitmapFrame.Create(icon,
                     System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
@@ -45,9 +53,11 @@ namespace Morror
             Get<ComboBox>("Devices").SelectionChanged += (s, e) => UpdateButtons();
             Get<Button>("Refresh").Click += async (s, e) => await RefreshUsb();
             Get<Button>("Driver").Click += async (s, e) => await ConfigureUsb();
+            Get<Button>("Network").Click += async (s, e) => await ConfigureNetwork();
             Get<Button>("Start").Click += async (s, e) => await Start();
             Get<Button>("Stop").Click += async (s, e) => await Stop();
-            window.Loaded += async (s, e) => { await RefreshUsb(); if (!closeRequested) timer.Start(); };
+            // Show the window immediately. USB discovery is only needed when USB is selected.
+            window.Loaded += (s, e) => timer.Start();
             timer.Tick += async (s, e) => await Poll();
             window.Closing += async (s, e) =>
             {
@@ -72,8 +82,10 @@ namespace Morror
         {
             Get<FrameworkElement>("DeviceRow").Visibility = WiFi ? Visibility.Collapsed : Visibility.Visible;
             Get<Button>("Driver").Visibility = WiFi ? Visibility.Collapsed : Visibility.Visible;
+            Get<Button>("Network").Visibility = WiFi ? Visibility.Visible : Visibility.Collapsed;
+            Get<TextBlock>("NetworkStatus").Visibility = WiFi ? Visibility.Visible : Visibility.Collapsed;
             Get<TextBlock>("Instructions").Text = WiFi
-                ? "Подключите ПК и iPhone к одной частной сети. Запустите AirPlay и выберите Morror в разделе «Повтор экрана» на iPhone. Если Windows запросит доступ к сети, разрешите его для частных сетей."
+                ? "Подключите ПК и iPhone к одной сети. Запустите AirPlay. На iPhone откройте Пункт управления → «Повтор экрана» (два прямоугольника) → Morror. Настройки «AirPlay и Непрерывность» не запускают трансляцию."
                 : "Подключите iPhone кабелем с передачей данных, разблокируйте его и нажмите «Доверять», если появится запрос.";
             Get<Button>("Start").Content = WiFi ? "Запустить AirPlay" : "Начать трансляцию";
             Status(WiFi ? "" : "Выберите подключённый iPhone.");
@@ -88,6 +100,7 @@ namespace Morror
             Get<ComboBox>("Devices").IsEnabled = idle;
             Get<Button>("Refresh").IsEnabled = idle;
             Get<Button>("Driver").IsEnabled = idle;
+            Get<Button>("Network").IsEnabled = !busy && !engine.HasSession && !closeRequested;
             Get<Button>("Start").IsEnabled = idle && (WiFi || Get<ComboBox>("Devices").SelectedItem != null);
             Get<Button>("Stop").IsEnabled = !busy && active && !closeRequested;
         }
@@ -98,7 +111,7 @@ namespace Morror
             busy = true;
             UpdateButtons();
             try { await operation(); }
-            catch (Exception error) { Status(error.Message); }
+            catch (Exception error) { Trace.WriteLine(error); Status(error.Message); }
             finally
             {
                 busy = false;
@@ -112,13 +125,25 @@ namespace Morror
             return Run(async () =>
             {
                 Status("Ищем iPhone по USB…");
-                var devices = await Task.Run(() => { engine.Initialize(); return engine.Devices(false, true); });
+                // Avoid Lockdown metadata round trips on every transport switch.
+                var devices = await Task.Run(() => { engine.Initialize(); return engine.Devices(false, false); });
                 var list = Get<ComboBox>("Devices");
                 var selected = list.SelectedItem as IPhoneMirrorEngine.Device?;
                 int index = selected.HasValue ? Array.FindIndex(devices, device => device.Id == selected.Value.Id) : -1;
                 list.ItemsSource = devices;
                 list.SelectedIndex = devices.Length == 0 ? -1 : Math.Max(0, index);
                 Status(devices.Length == 0 ? "iPhone не найден. Разблокируйте телефон или настройте USB-компонент Windows." : "iPhone найден. Нажмите «Начать трансляцию».");
+            });
+        }
+
+        Task ConfigureNetwork()
+        {
+            return Run(async () =>
+            {
+                if (listening) await StopSession();
+                Status("Разрешаем AirPlay в частной сети. Windows запросит права администратора…");
+                await IPhoneNetwork.Configure();
+                Status("Правила AirPlay добавлены для частной сети. Запустите AirPlay и откройте «Повтор экрана» на iPhone.");
             });
         }
 
@@ -142,6 +167,8 @@ namespace Morror
                 if (WiFi)
                 {
                     Status("Запускаем приёмник AirPlay…");
+                    string network = await Task.Run(() => IPhoneNetwork.Describe());
+                    Get<TextBlock>("NetworkStatus").Text = network;
                     await Task.Run(() => { engine.Initialize(); engine.Listen(); });
                     listening = true;
                     started = DateTime.UtcNow;
@@ -164,7 +191,8 @@ namespace Morror
                 preview = new PreviewHost();
                 Get<Grid>("Preview").Children.Add(preview);
                 preview.UpdateLayout();
-                engine.Attach(preview.Handle);
+                var handle = preview.Handle;
+                await Task.Run(() => engine.Attach(handle));
                 started = DateTime.UtcNow;
             }
             catch (Exception error) { startupFailure = error; }
@@ -190,7 +218,8 @@ namespace Morror
                         {
                             await StopSession();
                             Status(state.FailureKind == 8 ? "iPhone отключился." :
-                                "Трансляция завершилась. Проверьте подключение iPhone и повторите запуск.");
+                                "Трансляция завершилась (код " + state.ErrorCode + ", этап " + state.FailureStage + "). " + state.Message +
+                                (WiFi ? "" : " Проверьте «Настроить USB в Windows» и переподключите кабель."));
                         }
                         else if (state.State == 4 && state.VideoFrames > 0)
                             Status("iPhone подключён · " + state.Width + " × " + state.Height + " · " + Math.Round(state.Fps) + " FPS");
@@ -206,7 +235,9 @@ namespace Morror
                         return;
                     }
                     var devices = await Task.Run(() => engine.Devices(true, false));
-                    if (devices.Length == 0) Status("AirPlay готов. Выберите Morror в «Повторе экрана» на iPhone.");
+                    if (devices.Length == 0) Status(DateTime.UtcNow - started > TimeSpan.FromSeconds(15)
+                        ? "iPhone пока не обнаружен. Если Morror отсутствует в «Повторе экрана», нажмите «Настроить сеть AirPlay». Проверьте общую сеть, VPN и изоляцию устройств в роутере."
+                        : "Приёмник AirPlay запущен; ожидаем iPhone. Откройте Пункт управления → «Повтор экрана» → Morror.");
                     else await StartPreview(devices.First(), true);
                 }
                 catch (Exception error) { failure = error; }

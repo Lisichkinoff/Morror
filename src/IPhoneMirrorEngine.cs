@@ -8,7 +8,22 @@ using System.Runtime.InteropServices;
 namespace Morror
 {
     // Windows x64 ABI from iPhoneMirror v1.8.3, CoreApi.h (version 18).
-    internal sealed class IPhoneMirrorEngine : IDisposable
+    internal interface IIPhoneMirrorEngine : IDisposable
+    {
+        bool HasSession { get; }
+        string DriverTool { get; }
+        void Initialize();
+        IPhoneMirrorEngine.Device[] Devices(bool wiFi, bool refreshMetadata);
+        void Listen();
+        bool ReceiverReady();
+        void Start(IPhoneMirrorEngine.Device device, bool wiFi);
+        void Attach(IntPtr window);
+        IPhoneMirrorEngine.CaptureStatus Status();
+        void Stop();
+        void StopListening();
+    }
+
+    internal sealed class IPhoneMirrorEngine : IIPhoneMirrorEngine
     {
         const string Core = "iPhoneMirror.Core.dll";
         const uint Api = 18;
@@ -19,11 +34,11 @@ namespace Morror
         readonly string directory;
 
         internal IPhoneMirrorEngine(string directory) { this.directory = directory; }
-        internal bool HasSession { get { return session != 0; } }
+        public bool HasSession { get { return session != 0; } }
         internal string WirelessHost { get { return Path.Combine(directory, "Wireless", "iPhoneMirror.WirelessHost.exe"); } }
-        internal string DriverTool { get { return Path.Combine(directory, "iPhoneMirror.Driver.exe"); } }
+        public string DriverTool { get { return Path.Combine(directory, "iPhoneMirror.Driver.exe"); } }
 
-        internal void Initialize()
+        public void Initialize()
         {
             if (initialized) return;
             string path = Path.Combine(directory, Core);
@@ -45,7 +60,7 @@ namespace Morror
             }
         }
 
-        internal Device[] Devices(bool wiFi, bool refreshMetadata)
+        public Device[] Devices(bool wiFi, bool refreshMetadata)
         {
             uint count = 0;
             Check(wiFi ? im_refresh_wireless_devices(null, ref count) : im_refresh_devices_ex(null, ref count, refreshMetadata ? 1 : 0),
@@ -62,14 +77,14 @@ namespace Morror
             return new Device[0];
         }
 
-        internal void Listen()
+        public void Listen()
         {
             if (!File.Exists(WirelessHost)) throw new IOException("В сборке отсутствует приёмник AirPlay.");
             Check(im_wireless_receiver_start_ex(ReceiverName, WirelessHost, 1920, 1080, 60), "Не удалось запустить AirPlay");
             listening = true;
         }
 
-        internal bool ReceiverReady()
+        public bool ReceiverReady()
         {
             int running, ready;
             Check(im_wireless_receiver_get_status(out running, out ready), "Не удалось проверить состояние AirPlay");
@@ -77,34 +92,30 @@ namespace Morror
             return ready != 0;
         }
 
-        internal void Start(Device device, bool wiFi)
+        public void Start(Device device, bool wiFi)
         {
             var options = new CaptureOptions { Size = (uint)Marshal.SizeOf(typeof(CaptureOptions)), ApiVersion = Api, PlayAudio = 1, Volume = 1 };
-            if (!wiFi)
-            {
-                int available;
-                Check(im_is_libusb0_device_available(device.Id, out available), "Не удалось проверить USB");
-                if (available == 0)
-                    throw new IOException("USB-компонент для выбранного iPhone не готов. Нажмите «Настроить USB в Windows».");
-            }
+            // The native session performs the authoritative driver check and USB
+            // configuration switch. A legacy libusb0 probe can reject other supported
+            // backends and enters the USB filter unnecessarily before capture.
             Check(wiFi ? im_wireless_session_create(device.Id, ref options, out session) : im_session_create(device.Id, ref options, out session),
                 "Не удалось начать трансляцию");
         }
 
-        internal void Attach(IntPtr window)
+        public void Attach(IntPtr window)
         {
             if (window == IntPtr.Zero) throw new IOException("Не удалось создать окно трансляции iPhone.");
             Check(im_session_attach_preview(session, window), "Не удалось открыть изображение iPhone");
         }
 
-        internal CaptureStatus Status()
+        public CaptureStatus Status()
         {
             var status = new CaptureStatus { Size = (uint)Marshal.SizeOf(typeof(CaptureStatus)), ApiVersion = Api };
             Check(im_session_get_status(session, ref status), "Не удалось проверить трансляцию");
             return status;
         }
 
-        internal void Stop()
+        public void Stop()
         {
             if (session == 0) return;
             ulong handle = session;
@@ -113,7 +124,7 @@ namespace Morror
             finally { im_session_destroy(handle); }
         }
 
-        internal void StopListening()
+        public void StopListening()
         {
             if (!listening) return;
             listening = false;
@@ -145,7 +156,10 @@ namespace Morror
             if (code == 0) return;
             string detail = Marshal.PtrToStringUni(im_last_error());
             Trace.WriteLine("iPhoneMirror: " + code + " " + detail);
-            throw new IOException(message + " (код " + code + ").");
+            string guidance = code == -4 || code == -7 || code == -9 || code == -10
+                ? " Для USB: разблокируйте iPhone, проверьте доверие и «Настроить USB в Windows»." : "";
+            throw new IOException(message + " (код " + code + ")." + guidance +
+                (string.IsNullOrWhiteSpace(detail) ? "" : "\n" + detail));
         }
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -201,8 +215,6 @@ namespace Morror
         static extern int im_wireless_receiver_get_status(out int running, out int ready);
         [DllImport(Core, CallingConvention = CallingConvention.Cdecl)]
         static extern void im_wireless_receiver_stop();
-        [DllImport(Core, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
-        static extern int im_is_libusb0_device_available(string id, out int available);
         [DllImport(Core, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
         static extern int im_session_create(string id, ref CaptureOptions options, out ulong handle);
         [DllImport(Core, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
