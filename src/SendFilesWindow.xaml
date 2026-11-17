@@ -1,0 +1,43 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Morror — отправить на телефон" Width="540" Height="460" MinWidth="420" MinHeight="390"
+        WindowStartupLocation="CenterScreen" Background="#22232D" Foreground="#F4F3FA"
+        FontFamily="Segoe UI" FontSize="14" UseLayoutRounding="True">
+  <Border Padding="24">
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+    <TextBlock Text="Отправить на телефон" FontSize="25" FontWeight="SemiBold" Margin="0,0,0,16"/>
+    <TextBlock Grid.Row="1" Text="Получатель Android" Foreground="#AAA8BD" Margin="0,0,0,6"/>
+    <Grid Grid.Row="2" Margin="0,0,0,16">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <ComboBox x:Name="SendDevice" DisplayMemberPath="Label" AutomationProperties.Name="Получатель Android"/>
+      <Button x:Name="SendRefresh" Grid.Column="1" Content="Обновить" Margin="8,0,0,0"/>
+    </Grid>
+    <Border Grid.Row="3" Background="#2B2D3A" BorderBrush="#383A49" BorderThickness="1" CornerRadius="12" Padding="12">
+      <DockPanel>
+        <TextBlock x:Name="SendCount" DockPanel.Dock="Top" FontWeight="SemiBold" Margin="0,0,0,8"/>
+        <ListBox x:Name="SendList" Background="Transparent" Foreground="#E6E4F2" BorderThickness="0"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Файлы к отправке">
+          <ListBox.ItemTemplate><DataTemplate>
+            <TextBlock Text="{Binding Name}" ToolTip="{Binding FullName}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" Margin="0,2"/>
+          </DataTemplate></ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+    <StackPanel Grid.Row="4" Margin="0,12">
+      <TextBlock x:Name="SendStatus" Foreground="#C8BDDF" AutomationProperties.LiveSetting="Polite"/>
+      <ProgressBar x:Name="SendProgress" Height="6" Margin="0,8,0,0" Visibility="Collapsed"
+                   Foreground="#A99AFF" Background="#30313F" AutomationProperties.Name="Ход отправки"/>
+    </StackPanel>
+    <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right">
+      <Button x:Name="SendClose" Content="Закрыть"/>
+      <Button x:Name="SendCancel" Content="Отменить отправку" Visibility="Collapsed"/>
+      <Button x:Name="SendStart" Content="Отправить" Margin="8,0,0,0" IsEnabled="False"
+              Background="#A99AFF" BorderBrush="#A99AFF" Foreground="#272139" FontWeight="SemiBold"/>
+    </StackPanel>
+  </Grid>
+  </Border>
+</Window>

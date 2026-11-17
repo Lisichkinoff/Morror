@@ -11,7 +11,7 @@
       <Border Background="#2B2D3A" BorderBrush="#383A49" BorderThickness="1" CornerRadius="13" Padding="14"><Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <ComboBox x:Name="RemoteFolder" SelectedIndex="0" AutomationProperties.Name="Папка на телефоне"><ComboBoxItem Content="Камера" Tag="/sdcard/DCIM/Camera"/><ComboBoxItem Content="Фотографии" Tag="/sdcard/Pictures"/><ComboBoxItem Content="Загрузки" Tag="/sdcard/Download"/><ComboBoxItem Content="Фото Morror" Tag="/sdcard/Pictures/Morror"/><ComboBoxItem Content="Память телефона" Tag="/sdcard"/></ComboBox>
         <Grid Grid.Row="1" Margin="0,10"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Button x:Name="RemoteUp" Content="↑" Padding="12,6" ToolTip="На папку выше"/><TextBlock x:Name="RemotePath" Grid.Column="1" Foreground="#AAA3BB" FontSize="12" Margin="8,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/><Button x:Name="RemoteRefresh" Grid.Column="2" Content="↻" Padding="12,6" ToolTip="Обновить файлы"/></Grid>
-        <ListBox x:Name="RemoteFiles" Grid.Row="2" Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Галерея файлов телефона">
+        <ListBox x:Name="RemoteFiles" Grid.Row="2" SelectionMode="Extended" Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Галерея файлов телефона" AutomationProperties.HelpText="Ctrl или Shift для выбора нескольких файлов. Выбор сохраняется между страницами.">
           <ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
           <ListBox.ItemTemplate><DataTemplate><StackPanel>
             <Grid Height="96" Background="#252631"><TextBlock Text="{Binding Icon}" FontSize="32" Foreground="#A590D5" HorizontalAlignment="Center" VerticalAlignment="Center"/><Image Source="{Binding Preview}" Stretch="Uniform" RenderOptions.BitmapScalingMode="LowQuality"/></Grid>
@@ -23,8 +23,9 @@
         <Grid Grid.Row="4"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Button x:Name="ReceiveClipboard" Content="Копировать в буфер ПК" Background="#A99AFF" BorderBrush="#A99AFF" Foreground="#272139" Padding="10,12"/><Button x:Name="ReceiveSave" Grid.Column="1" Content="Сохранить…" Margin="8,0,0,0" Padding="10,12"/></Grid>
       </Grid></Border>
       <Border Grid.Column="2" Background="#2B2D3A" BorderBrush="#383A49" BorderThickness="1" CornerRadius="13" Padding="16"><ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel>
-        <Border Background="#252631" CornerRadius="8" Height="145"><Image x:Name="SelectedPreview" Stretch="Uniform"/></Border>
+        <Border x:Name="SelectionPreview" Background="#252631" CornerRadius="8" Height="145"><Image x:Name="SelectedPreview" Stretch="Uniform"/></Border>
         <TextBlock x:Name="SelectedName" Text="Выберите фото" FontSize="13" Foreground="#B7A9CB" Margin="0,8,0,16" TextWrapping="Wrap"/>
+        <Button x:Name="ClearSelection" Content="Сбросить выбор" Visibility="Collapsed" Padding="8,7" Margin="0,0,0,16"/>
         <TextBlock Text="На телефон" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,10"/>
         <Button x:Name="SendFile" Content="Выбрать файл…" Padding="8,11" Margin="0,0,0,8"/>
         <Button x:Name="SendClipboardImage" Content="Изображение из буфера" Padding="8,11" Margin="0,0,0,8"/>
@@ -34,6 +35,19 @@
         <Expander Header="Как работает обмен" Foreground="#B7A9CB" Margin="0,14,0,0"><TextBlock Text="Выберите фото → скопируйте в буфер → Ctrl+V на ПК. Превью загружаются по 12 элементов; большие файлы и неподдерживаемые форматы доступны без превью. На телефон файлы сохраняются в Pictures/Morror или Download/Morror. Общий Ctrl+C / Ctrl+V в трансляции передаёт текст." FontSize="13" TextWrapping="Wrap" Margin="0,10,0,0"/></Expander>
       </StackPanel></ScrollViewer></Border>
     </Grid>
-    <Border Grid.Row="3" Background="#363044" CornerRadius="10" Padding="14" Margin="24,14,24,20"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock x:Name="TransferResultTitle" Text="Подключение" FontWeight="SemiBold" Foreground="#A99AFF" Margin="0,0,0,4"/><TextBlock x:Name="TransferStatus" Text="Открываем файлы телефона…" Foreground="#CFC3E1" FontSize="13" TextWrapping="Wrap"/></StackPanel><Button x:Name="OpenReceivedFolder" Grid.Column="1" Content="Загрузки на ПК" FontSize="13" Padding="10,8" VerticalAlignment="Top" Margin="12,0,0,0"/></Grid></Border>
+    <Border Grid.Row="3" Background="#363044" CornerRadius="10" Padding="14" Margin="24,14,24,20">
+      <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <StackPanel>
+          <TextBlock x:Name="TransferResultTitle" Text="Подключение" FontWeight="SemiBold" Foreground="#A99AFF" Margin="0,0,0,4"/>
+          <TextBlock x:Name="TransferStatus" Text="Открываем файлы телефона…" Foreground="#CFC3E1" FontSize="13" TextWrapping="Wrap"/>
+          <ProgressBar x:Name="BatchProgress" Height="6" Margin="0,8,0,0" Visibility="Collapsed" Foreground="#A99AFF" Background="#252631" AutomationProperties.Name="Ход сохранения файлов"/>
+        </StackPanel>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="12,0,0,0">
+          <Button x:Name="CancelBatch" Content="Отменить" FontSize="13" Padding="10,8" Visibility="Collapsed"/>
+          <Button x:Name="OpenReceivedFolder" Content="Загрузки на ПК" FontSize="13" Padding="10,8"/>
+        </StackPanel>
+      </Grid>
+    </Border>
   </Grid>
 </Window>

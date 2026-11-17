@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace Morror
@@ -26,6 +27,40 @@ namespace Morror
                 if (result.ExitCode != 0) System.Diagnostics.Trace.WriteLine(result.Combined);
             }
             catch (Exception error) { System.Diagnostics.Trace.WriteLine(error); }
+        }
+
+        internal static async Task EnsureInstalled(string adb, string serial, string apk, Action installing)
+        {
+            string versionFile = Path.ChangeExtension(apk, ".version");
+            long bundledVersion;
+            if (File.Exists(versionFile) && long.TryParse(File.ReadAllText(versionFile).Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out bundledVersion) && bundledVersion > 0)
+            {
+                long installedVersion = await InstalledVersion(adb, serial);
+                if (installedVersion == bundledVersion) return;
+                if (installedVersion > bundledVersion)
+                    throw new IOException("На Android установлена более новая версия Morror Монитор. Обновите Morror на ПК.");
+            }
+            installing();
+            await Install(adb, serial, apk);
+        }
+
+        static async Task<long> InstalledVersion(string adb, string serial)
+        {
+            CommandResult result;
+            try
+            {
+                var currentUser = await Commands.Run(adb, 8000, "-s", serial, "shell", "am", "get-current-user");
+                int userId;
+                if (currentUser.ExitCode != 0 || !int.TryParse(currentUser.Output.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out userId)) return 0;
+                result = await Commands.Run(adb, 8000, "-s", serial, "shell", "pm", "list", "packages", "--user",
+                    userId.ToString(CultureInfo.InvariantCulture), "--show-versioncode", "ru.morror.monitor");
+            }
+            catch (TimeoutException) { return 0; }
+            if (result.ExitCode != 0) return 0;
+            var match = Regex.Match(result.Output, @"^package:ru\.morror\.monitor[ \t]+versionCode:([0-9]+)[ \t]*\r?$", RegexOptions.Multiline);
+            long installedVersion;
+            return match.Success && long.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out installedVersion)
+                ? installedVersion : 0;
         }
 
         public static async Task Install(string adb,string serial,string apk)

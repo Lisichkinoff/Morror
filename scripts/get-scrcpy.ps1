@@ -11,4 +11,5 @@ if (!(Test-Path -LiteralPath $archive)) {
 }
 if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $expected) { throw 'Контрольная сумма scrcpy не совпадает. Загрузка не будет распакована.' }
 Expand-Archive -LiteralPath $archive -DestinationPath $tools -Force
+& (Join-Path $PSScriptRoot 'build-scrcpy-live.ps1') -Download | Out-Null
 Write-Host "scrcpy $version: SHA-256 проверен, компоненты готовы."

@@ -19,6 +19,7 @@ namespace Morror
         public bool Wireless { get; set; }
         public bool Ready { get { return State == "device"; } }
         public string Label { get { return Model + "  ·  " + (Wireless ? "Wi-Fi" : "USB") + (Ready ? "" : "  ·  " + (State == "unauthorized" ? "разрешите доступ" : State == "offline" ? "не в сети" : State)); } }
+        internal bool SameConnection(Device other) { return other != null && Serial == other.Serial && Wireless == other.Wireless; }
     }
 
     public static class Protocol
@@ -110,6 +111,13 @@ namespace Morror
 
     public static class Commands
     {
+        internal static async Task<List<Device>> ListDevices(string adb, CancellationToken cancellation)
+        {
+            var result = await RunCancellable(adb, 10000, cancellation, "devices", "-l");
+            if (result.ExitCode != 0) throw new IOException("Не удалось получить список устройств.\n" + result.Combined);
+            return Protocol.ParseDevices(result.Output);
+        }
+
         public static ProcessStartInfo StartInfo(string exe, IEnumerable<string> args)
         {
             return new ProcessStartInfo(exe, Protocol.Arguments(args)) { WorkingDirectory = Path.GetDirectoryName(exe), UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8 };

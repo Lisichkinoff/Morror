@@ -1,39 +1,82 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Morror — экран iPhone" Width="620" Height="760" MinWidth="420" MinHeight="440"
-        WindowStartupLocation="CenterScreen" Background="#22232D" Foreground="#F4F3FA" FontFamily="Segoe UI" FontSize="14">
-  <Grid Margin="22">
-    <Grid.RowDefinitions>
-      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
-    </Grid.RowDefinitions>
-    <StackPanel>
-      <TextBlock Text="Трансляция экрана iPhone" FontSize="25" FontWeight="SemiBold" Margin="0,0,0,16"/>
-      <ComboBox x:Name="Transport" SelectedIndex="1" AutomationProperties.Name="Подключение iPhone">
-        <ComboBoxItem Content="USB · кабель"/><ComboBoxItem Content="Wi-Fi · AirPlay"/>
-      </ComboBox>
-      <TextBlock x:Name="Instructions" TextWrapping="Wrap" Foreground="#C8BDDF" Margin="0,10,0,14"/>
-    </StackPanel>
-    <Grid x:Name="DeviceRow" Grid.Row="1" Margin="0,0,0,12">
-      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-      <ComboBox x:Name="Devices" DisplayMemberPath="Label" AutomationProperties.Name="Выбранный iPhone"/>
-      <Button x:Name="Refresh" Grid.Column="1" Content="Обновить" Margin="8,0,0,0"/>
-    </Grid>
-    <Border Grid.Row="2" Background="#171820" CornerRadius="10" ClipToBounds="True">
-      <Grid x:Name="Preview">
-        <TextBlock Text="Здесь появится экран iPhone" HorizontalAlignment="Center" VerticalAlignment="Center"
-                   Foreground="#9B9BAE" TextWrapping="Wrap" Margin="10"/>
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="Morror — экран iPhone" Width="640" Height="760" MinWidth="420" MinHeight="480"
+        WindowStartupLocation="CenterScreen" Background="#1E1F29" Foreground="#F2EFFA"
+        FontFamily="Segoe UI" FontSize="14" UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
+  <shell:WindowChrome.WindowChrome>
+    <shell:WindowChrome CaptionHeight="40" ResizeBorderThickness="6" GlassFrameThickness="0" CornerRadius="52" UseAeroCaptionButtons="False"/>
+  </shell:WindowChrome.WindowChrome>
+  <Border x:Name="WindowFrame" Style="{DynamicResource WindowFrameStyle}">
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="40"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+      <Grid Margin="22,0,12,0">
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+          <Image Source="{Binding Icon, RelativeSource={RelativeSource AncestorType=Window}}" Width="18" Height="18"/>
+          <TextBlock Text="morror." FontSize="15" FontWeight="SemiBold" Margin="8,0,0,0"/>
+          <TextBlock Text=" / iPhone" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" FontSize="12"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+          <Button x:Name="MinimizeButton" Style="{DynamicResource CaptionButton}" Content="&#xE921;" AutomationProperties.Name="Свернуть"/>
+          <Button x:Name="MaximizeButton" Style="{DynamicResource MaximizeCaptionButton}"/>
+          <Button x:Name="CloseButton" Style="{DynamicResource CaptionButton}" Content="&#xE8BB;" AutomationProperties.Name="Закрыть"/>
+        </StackPanel>
       </Grid>
-    </Border>
-    <StackPanel Grid.Row="3" Margin="0,12,0,0">
-      <TextBlock x:Name="NetworkStatus" TextWrapping="Wrap" Foreground="#C8BDDF" Margin="0,0,0,8"/>
-      <TextBlock x:Name="Status" TextWrapping="Wrap" Margin="0,0,0,10" AutomationProperties.LiveSetting="Polite"/>
-      <WrapPanel>
-        <Button x:Name="Driver" Content="Настроить USB в Windows" Margin="0,0,8,5"/>
-        <Button x:Name="Network" Content="Настроить сеть AirPlay" Margin="0,0,8,5"
-                ToolTip="Разрешить приёмнику AirPlay входящие подключения из локальной подсети в частных сетях. Потребуется подтверждение Windows."/>
-        <Button x:Name="Start" Content="Начать трансляцию" Background="#6E58BD" BorderBrush="#9A87E5" Margin="0,0,8,5"/>
-        <Button x:Name="Stop" Content="Остановить" IsEnabled="False" Margin="0,0,0,5"/>
-      </WrapPanel>
-    </StackPanel>
-  </Grid>
+      <StackPanel Grid.Row="1" Margin="22,8,22,12">
+        <TextBlock Text="Трансляция экрана iPhone" FontSize="25" FontWeight="SemiBold" Margin="0,0,0,14"/>
+        <Border Style="{DynamicResource Card}" Padding="14">
+          <StackPanel>
+            <TextBlock Text="Подключение iPhone" FontWeight="SemiBold" Margin="0,0,0,8"/>
+            <Grid>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+              <ComboBox x:Name="Transport" SelectedIndex="1" Height="44" AutomationProperties.Name="Подключение iPhone">
+                <ComboBoxItem Content="USB · кабель"/><ComboBoxItem Content="Wi-Fi · AirPlay"/>
+              </ComboBox>
+              <Button x:Name="Driver" Grid.Column="1" Style="{DynamicResource SessionAction}" Content="Настроить USB в Windows" Margin="8,0,0,0"/>
+              <Button x:Name="Network" Grid.Column="1" Style="{DynamicResource SessionAction}" Content="Настроить сеть AirPlay" Margin="8,0,0,0"
+                      ToolTip="Разрешить приёмнику AirPlay входящие подключения из локальной подсети в частных сетях. Потребуется подтверждение Windows."/>
+            </Grid>
+            <TextBlock x:Name="Instructions" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" Margin="0,10,0,0"/>
+            <Grid x:Name="DeviceRow" Margin="0,10,0,0">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+              <ComboBox x:Name="Devices" DisplayMemberPath="Label" AutomationProperties.Name="Выбранный iPhone"/>
+              <Button x:Name="Refresh" Grid.Column="1" Content="Обновить" Margin="8,0,0,0" Padding="12,7"/>
+            </Grid>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+      <Border Grid.Row="2" Background="#171820" BorderBrush="{DynamicResource PanelLine}" BorderThickness="1"
+              CornerRadius="17" Padding="8" Margin="22,0,22,14">
+        <Grid x:Name="Preview">
+          <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="10">
+            <TextBlock Text="&#xE8EA;" FontFamily="Segoe MDL2 Assets" FontSize="24" Foreground="{DynamicResource Accent}" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+            <TextBlock Text="Здесь появится экран iPhone" Foreground="{DynamicResource Muted}" TextAlignment="Center" TextWrapping="Wrap"/>
+          </StackPanel>
+        </Grid>
+      </Border>
+      <Border Grid.Row="3" Background="#252632" BorderBrush="#3B3C4E" BorderThickness="0,1,0,0" Padding="22,12,22,14">
+        <StackPanel>
+          <TextBlock x:Name="NetworkStatus" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" FontSize="12" Visibility="Collapsed"/>
+          <TextBlock x:Name="Status" TextWrapping="Wrap" Margin="0,5,0,9" AutomationProperties.LiveSetting="Polite" Visibility="Collapsed"/>
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="Start" Style="{DynamicResource PrimaryAction}">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="&#xE768;" FontFamily="Segoe MDL2 Assets" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                <TextBlock x:Name="StartLabel" Text="Запустить AirPlay"/>
+              </StackPanel>
+            </Button>
+            <Button x:Name="Stop" Style="{DynamicResource StopAction}" IsEnabled="False" Margin="8,0,0,0" AutomationProperties.Name="Стоп">
+              <StackPanel Orientation="Horizontal">
+                <Rectangle Width="10" Height="10" RadiusX="1" RadiusY="1" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                           Margin="0,0,8,0" VerticalAlignment="Center"/>
+                <TextBlock Text="Стоп"/>
+              </StackPanel>
+            </Button>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Grid>
+  </Border>
 </Window>

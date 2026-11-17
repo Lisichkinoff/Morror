@@ -223,13 +223,15 @@ namespace Morror
         readonly TaskCompletionSource<string> completion=new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         volatile bool authenticated;
         readonly object gate=new object();
-        string status="Ожидаем Android-клиент…";
+        string status="Ожидаем подключения телефона…";
+        bool sustainedLowFps;
         public readonly string Token=SecondScreenProtocol.Token();
         public int Port {get;private set;}
         public int DecodedFrames {get;private set;}
         public Task<string> Completion {get{return completion.Task;}}
         public bool HasClient {get{return authenticated;}}
         public string Status {get{lock(gate)return status;}}
+        internal bool SustainedLowFps { get { lock (gate) return sustainedLowFps; } }
         public NativeMonitorServer(string executable,string codec,ScreenChoice screen,int width,int height,int fps,bool audioEnabled,Func<ScreenTouchFrame,Task> touch,Func<Task> release,bool synthetic=false)
             : this(executable,codec,screen,width,height,fps,audioEnabled,touch,release,synthetic,null) { }
         internal NativeMonitorServer(string executable,string codec,ScreenChoice screen,int width,int height,int fps,bool audioEnabled,Func<ScreenTouchFrame,Task> touch,Func<Task> release,bool synthetic,MonitorCapture capture)
@@ -287,6 +289,7 @@ namespace Morror
                         byte[] magic=await MonitorWire.Read(stream,8,timeout.Token).ConfigureAwait(false);
                         string token=Encoding.ASCII.GetString(await MonitorWire.Read(stream,64,timeout.Token).ConfigureAwait(false));
                         if(Encoding.ASCII.GetString(magic)!="MRRMN001" || !SecondScreenProtocol.EqualToken(Token,token))throw new IOException("Недействительный ключ Android-клиента.");
+                        lock (gate) status = "Телефон подключён. Ожидаем первый кадр…";
                         authenticated=true;
                     }
                 }
@@ -323,7 +326,6 @@ namespace Morror
                     try
                     {
                         Stream video = encoder.Start(executable, codec, screen.Bounds, width, height, fps, synthetic, capture);
-                        lock (gate) status = "Монитор подключён · " + width + " × " + height + " · " + fps + " FPS · " + (codec == "mf-sw" ? "программное кодирование" : "аппаратное кодирование");
                         await ReadVideo(encoder, video, queue, controls, sendVideo, stopwatch, session.Token).ConfigureAwait(false);
                     }
                     catch (Exception error) { failure = error; }
@@ -376,7 +378,9 @@ namespace Morror
         async Task Controls(Stream stream,CancellationToken cancellation)
         {
             var state=new ScreenTouchState();
-            var statsClock=Stopwatch.StartNew();int lastFrames=0;long lastStats=0;
+            var statsClock = Stopwatch.StartNew();
+            int lastFrames = 0, lowSamples = 0;
+            long lastStats = 0;
             while(!cancellation.IsCancellationRequested)
             {
                 byte[] packet;
@@ -398,12 +402,22 @@ namespace Morror
                     var stats=SecondScreenProtocol.Json().Deserialize<Dictionary<string,int>>(Encoding.UTF8.GetString(packet,9,packet.Length-9));int frames;
                     if(stats.TryGetValue("frames",out frames)&&frames>=DecodedFrames)
                     {
-                        DecodedFrames=frames;long now=statsClock.ElapsedMilliseconds;
-                        if(now-lastStats>=500)
+                        DecodedFrames = frames;
+                        long now = statsClock.ElapsedMilliseconds;
+                        if (frames > 0 && now - lastStats >= 500)
                         {
-                            double measured=(frames-lastFrames)*1000.0/(now-lastStats);
-                            lock(gate)status="Монитор · "+width+" × "+height+" · "+measured.ToString("0.0")+" FPS на Android · "+(codec=="mf-sw"?"кодирование на CPU":"аппаратное кодирование");
-                            lastFrames=frames;lastStats=now;
+                            double measured = (frames - lastFrames) * 1000.0 / (now - lastStats);
+                            bool firstSample = lastStats == 0;
+                            lowSamples = !firstSample && measured < fps * 0.7 ? lowSamples + 1 : 0;
+                            lock (gate)
+                            {
+                                sustainedLowFps = lowSamples >= 4;
+                                status = "Монитор · " + width + " × " + height + " · лимит " + fps + " FPS · на Android "
+                                    + (firstSample ? "измеряем FPS" : measured.ToString("0.0") + " FPS") + " · "
+                                    + (codec == "mf-sw" ? "кодирование на CPU" : "аппаратное кодирование");
+                            }
+                            lastFrames = frames;
+                            lastStats = now;
                         }
                     }
                     continue;

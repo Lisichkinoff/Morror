@@ -45,7 +45,9 @@ class FakeDevice
             {
                 if (Path.GetFileName(args[push+1]).StartsWith("fail-send-")) { File.WriteAllBytes(Local(args[push+2]),new byte[]{1,2,3}); return 1; }
                 if (Path.GetFileName(args[push+1]).StartsWith("short-send-")) { File.WriteAllBytes(Local(args[push+2]),new byte[]{1}); return 0; }
-                File.Copy(args[push+1], Local(args[push+2]), false); return 0;
+                File.Copy(args[push+1], Local(args[push+2]), false);
+                if (File.Exists(Path.Combine(Storage, "send-second-phone"))) File.WriteAllText(Path.Combine(Storage, "last-send-target"), args[1]);
+                return 0;
             }
             if (args.Length > 3 && args[2] == "shell")
             {
@@ -71,7 +73,13 @@ class FakeDevice
             if (args.Contains("tcpip")) { File.WriteAllText(Path.Combine(Storage, "wifi-enabled"), "test only"); Console.WriteLine("restarting in TCP mode port: 5555"); return 0; }
             if (args.Length > 0 && args[0] == "connect") { Console.WriteLine("connected to " + args[1]); return 0; }
             if (args.Contains("get-state")) { Console.WriteLine("device"); return 0; }
-            if (args.Length > 0 && args[0] == "devices") Console.WriteLine("List of devices attached\nTEST-PHONE device usb:1-1 model:Galaxy_S24 device:generic" + (File.Exists(Path.Combine(Storage, "wifi-enabled")) ? "\n192.168.1.20:5555 device model:Galaxy_S24" : ""));
+            if (args.Length > 0 && args[0] == "devices")
+            {
+                string usbState = File.Exists(Path.Combine(Storage, "usb-unauthorized")) ? "unauthorized" : "device";
+                Console.WriteLine("List of devices attached\nTEST-PHONE " + usbState + " usb:1-1 model:Galaxy_S24 device:generic"
+                    + (File.Exists(Path.Combine(Storage, "wifi-enabled")) ? "\n192.168.1.20:5555 device model:Galaxy_S24" : "")
+                    + (File.Exists(Path.Combine(Storage, "send-second-phone")) ? "\nSECOND-PHONE device usb:1-2 model:Second_phone" : ""));
+            }
             else if (Array.IndexOf(args, "getprop") >= 0)
             {
                 if (Array.IndexOf(args, "ro.build.version.sdk") >= 0) Console.WriteLine("35");
@@ -81,6 +89,7 @@ class FakeDevice
             else if (Array.IndexOf(args, "dumpsys") >= 0) Console.WriteLine("mDisplayInfo=DisplayInfo{displayId 0, renderFrameRate 120.0, modes [{fps=60.0}, {fps=120.0}]}");
             return 0;
         }
+        Console.WriteLine("INFO: 43 fps (+2 frames skipped)");
         var application = new Application();
         application.Run(new Window { Title = "Morror test fixture", Width = 180, Height = 90, Left = -5000, Top = -5000, WindowStartupLocation = WindowStartupLocation.Manual });
         return 0;

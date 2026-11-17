@@ -1,4 +1,4 @@
-# Native second monitor · Morror 0.9.3
+# Native second monitor
 
 An Android phone or tablet can act as an extended Windows display. Windows applications remain ordinary desktop applications; Android runs the native **Morror Monitor** receiver, without a browser or WebView. The Windows UI currently uses Russian labels.
 
@@ -7,8 +7,10 @@ An Android phone or tablet can act as an extended Windows display. Windows appli
 1. Open **«Второй экран»** (Second screen) in Morror.
 2. Install the included virtual display component once and approve the Windows administrator prompt. Morror verifies the driver files and the Windows-trusted catalog signature before using SetupAPI/NewDev to install the unmodified driver package. Test signing and third-party root certificates are not enabled.
 3. Connect and authorize Android by USB or Wi-Fi, select the device and enable the second monitor.
-4. Morror installs its APK before configuring the Windows display, then starts the receiver once the display is ready. Some Android vendors require a separate setting that allows installation through USB debugging.
-5. Move a Windows application onto the virtual monitor, which is attached to the right of the existing desktop when Morror activates it.
+4. Morror installs its APK if the receiver is missing or older than the bundled version. It starts the receiver once the Windows display is ready. Some Android vendors require a separate setting that allows installation through USB debugging.
+5. Once the first frame appears, move a Windows application onto the virtual monitor to the right of the existing desktop.
+
+If the stream drops, reconnect the device using the same connection and select **«Возобновить»** (Resume) to restart with the previous settings.
 
 Open **«Скачать Morror Монитор на Android по QR-коду»** in the second-screen window. Select an authorized Android device connected by USB or wireless debugging. Morror transfers the bundled APK through that connection. Scan the download QR with the camera on the selected phone or click **«Установить на подключённый Android»** to install it from Windows.
 

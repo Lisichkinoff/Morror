@@ -13,6 +13,6 @@ namespace Morror
 {
     internal static class AppVersion
     {
-        internal const string Number = "0.9.4";
+        internal const string Number = "0.9.5";
     }
 }

@@ -1,5 +1,6 @@
 // Integration tests exercise the actual WPF controller with the FakeDevice fixture.
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
@@ -21,6 +22,18 @@ class DesktopTests
     static int result = 1;
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
     static extern int GetWindowLong(IntPtr window, int index);
+    [DllImport("user32.dll")]
+    static extern int GetWindowRgn(IntPtr window, IntPtr region);
+    [DllImport("gdi32.dll")]
+    static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+    [DllImport("gdi32.dll")]
+    static extern int GetRgnBox(IntPtr region, out RegionBounds bounds);
+    [DllImport("gdi32.dll")]
+    static extern bool PtInRegion(IntPtr region, int x, int y);
+    [DllImport("gdi32.dll")]
+    static extern bool DeleteObject(IntPtr handle);
+    [StructLayout(LayoutKind.Sequential)]
+    struct RegionBounds { public int Left, Top, Right, Bottom; }
     static readonly BindingFlags Flags = BindingFlags.Instance | BindingFlags.NonPublic;
     static T Field<T>(object target, string name) { return (T)target.GetType().GetField(name, Flags).GetValue(target); }
     static void Set(object target, string name, object value) { target.GetType().GetField(name, Flags).SetValue(target, value); }
@@ -31,7 +44,12 @@ class DesktopTests
         var content = (FrameworkElement)window.Content;
         var bitmap = new RenderTargetBitmap((int)Math.Ceiling(content.ActualWidth), (int)Math.Ceiling(content.ActualHeight), 96, 96, PixelFormats.Pbgra32);
         var background = new DrawingVisual();
-        using (var drawing = background.RenderOpen()) drawing.DrawRectangle(window.Background, null, new Rect(0, 0, content.ActualWidth, content.ActualHeight));
+        using (var drawing = background.RenderOpen())
+        {
+            if (content.Clip != null) drawing.PushClip(content.Clip);
+            drawing.DrawRectangle(window.Background, null, new Rect(0, 0, content.ActualWidth, content.ActualHeight));
+            if (content.Clip != null) drawing.Pop();
+        }
         bitmap.Render(background);
         bitmap.Render(content);
         var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
@@ -42,6 +60,22 @@ class DesktopTests
     {
         var timeout = Stopwatch.StartNew();
         while (!predicate()) { if (timeout.ElapsedMilliseconds > 10000) throw new TimeoutException("Desktop test timed out."); await Task.Delay(50); }
+    }
+
+    static bool HasRoundedWindowRegion(Window window)
+    {
+        var region = CreateRectRgn(0, 0, 0, 0);
+        try
+        {
+            if (GetWindowRgn(new System.Windows.Interop.WindowInteropHelper(window).Handle, region) != 3) return false;
+            RegionBounds bounds;
+            if (GetRgnBox(region, out bounds) == 0) return false;
+            int left = bounds.Left + 2, top = bounds.Top + 2, right = bounds.Right - 3, bottom = bounds.Bottom - 3;
+            return !PtInRegion(region, left, top) && !PtInRegion(region, right, top) &&
+                !PtInRegion(region, left, bottom) && !PtInRegion(region, right, bottom) &&
+                PtInRegion(region, (left + right) / 2, top);
+        }
+        finally { DeleteObject(region); }
     }
 
     [STAThread]
@@ -62,8 +96,33 @@ class DesktopTests
                 Check(((CheckBox)window.FindName("ClipboardSync")).IsChecked == true, "Shared text clipboard is enabled in the shipped UI");
                 CheckSettingsPersistence();
                 window.Show();
+                Check(HasRoundedWindowRegion(window), "The native window region rounds all four corners");
+                var maximize = (System.Windows.Controls.Button)window.FindName("MaximizeButton");
+                maximize.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                await Until(() => window.WindowState == WindowState.Maximized);
+                Check(((Border)window.FindName("WindowFrame")).Clip == null && !HasRoundedWindowRegion(window),
+                    "Maximizing fills the work area with square corners");
+                maximize.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                await Until(() => window.WindowState == WindowState.Normal && HasRoundedWindowRegion(window));
+                Check(((Border)window.FindName("WindowFrame")).Clip is RectangleGeometry, "Restoring the window restores the rounded frame");
                 CheckUpdateNotice(controller, window);
+                Check(!((Grid)window.FindName("AndroidSetup")).IsVisible && !((Grid)window.FindName("StreamActions")).IsVisible &&
+                    ((FrameworkElement)window.FindName("IPhoneTask")).IsVisible && ((FrameworkElement)window.FindName("MonitorTask")).IsVisible,
+                    "Home opens with task choices and hides Android setup until selected");
+                Snapshot(window, "main-tasks.png");
+                ((System.Windows.Controls.Button)window.FindName("AndroidTask")).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                Check(((Grid)window.FindName("AndroidSetup")).IsVisible && ((Grid)window.FindName("StreamActions")).IsVisible,
+                    "Android task reveals its connection and stream actions");
                 await Until(() => ((TextBlock)window.FindName("DeviceAndroid")).Text == "Android 15");
+                var startButton = (System.Windows.Controls.Button)window.FindName("StartButton");
+                var stopButton = (System.Windows.Controls.Button)window.FindName("StopButton");
+                await Until(() => startButton.IsEnabled);
+                window.UpdateLayout();
+                Check(startButton.ActualHeight == 44 && stopButton.ActualHeight == startButton.ActualHeight,
+                    "Start and Stop align at the same 44 DIP height even when Stop is disabled");
+                Check(Equals(((Border)window.FindName("StatusPill")).Tag, "Ready") &&
+                    ((System.Windows.Controls.Button)window.FindName("AndroidTask")).Background is LinearGradientBrush,
+                    "The connected device and selected Android task use the approved highlight styles");
                 Check(((TextBlock)window.FindName("DeviceResolution")).Text == "1440 × 3120" && ((TextBlock)window.FindName("DeviceModel")).Text == "Galaxy S24", "Selected phone supplies the live device card instead of a fixed brand profile");
                 Check(((ComboBox)window.FindName("Quality")).SelectedIndex == 1 && ((ComboBox)window.FindName("FrameRate")).SelectedIndex == 2, "Shipped balanced mode limits capture to HD and 60 FPS");
                 Snapshot(window, "main-balanced.png");
@@ -85,12 +144,30 @@ class DesktopTests
                 Check(((System.Windows.Controls.TextBox)window.FindName("PairAddress")).IsVisible, "Manual Wi-Fi expander reveals pairing fields in the redesigned template");
                 Snapshot(window, "main-wifi-manual.png");
                 ((Expander)window.FindName("ManualWifi")).IsExpanded = false;
-                Check(((ComboBox)window.FindName("Devices")).SelectedItem is Device, "Wi-Fi setup retains the authorized USB phone for migration");
+                Check(((ComboBox)window.FindName("Devices")).SelectedItem == null && Field<Device>(controller, "usbMigrationDevice").Serial == "TEST-PHONE",
+                    "Wi-Fi mode keeps USB available for migration without selecting it for streaming");
                 ((System.Windows.Controls.Button)window.FindName("UsbWifiButton")).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
                 await Until(() => !Field<bool>(controller, "networkBusy") && !Field<bool>(controller, "refreshing"));
                 Check(((Device)((ComboBox)window.FindName("Devices")).SelectedItem).Serial == "192.168.1.20:5555" && ((TextBlock)window.FindName("Notice")).Text.Contains("USB можно отключить"), "USB to Wi-Fi button enables TCP, verifies readiness and selects the wireless transport");
-                File.Delete(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "FakeRuntime", "Storage", "wifi-enabled"));
-                ((System.Windows.Controls.Button)window.FindName("UsbButton")).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                string storage = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "FakeRuntime", "Storage");
+                string unauthorized = Path.Combine(storage, "usb-unauthorized");
+                try
+                {
+                    File.WriteAllText(unauthorized, "test only");
+                    ((System.Windows.Controls.Button)window.FindName("UsbButton")).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                    await Until(() => !Field<bool>(controller, "refreshing"));
+                    var devices = (ComboBox)window.FindName("Devices");
+                    Check(devices.Items.Count == 1 && ((Device)devices.SelectedItem).State == "unauthorized" &&
+                        !((System.Windows.Controls.Button)window.FindName("StartButton")).IsEnabled &&
+                        ((TextBlock)window.FindName("DeviceHint")).Text.Contains("Разрешить отладку"),
+                        "USB mode shows the pending authorization instead of selecting the ready Wi-Fi phone");
+                }
+                finally
+                {
+                    File.Delete(unauthorized);
+                    File.Delete(Path.Combine(storage, "wifi-enabled"));
+                }
+                ((System.Windows.Controls.Button)window.FindName("RefreshButton")).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
                 await Until(() => !Field<bool>(controller, "refreshing"));
                 var devicePreset = (System.Windows.Controls.Button)window.FindName("DevicePresetButton");
                 devicePreset.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
@@ -103,7 +180,8 @@ class DesktopTests
                 Snapshot(window, "main-large-text.png");
                 window.Width = 800; window.Height = 800;
                 Snapshot(window, "main-compact-text.png");
-                Check(((ColumnDefinition)window.FindName("SidebarColumn")).Width.Value == 76 && ((FrameworkElement)window.FindName("OverviewLabel")).Visibility == Visibility.Collapsed && ((System.Windows.Controls.Button)window.FindName("StartButton")).IsVisible, "Compact layout collapses navigation labels while keeping stream controls accessible");
+                Check(((ColumnDefinition)window.FindName("SidebarColumn")).Width.Value == 66 && ((FrameworkElement)window.FindName("OverviewLabel")).Visibility == Visibility.Collapsed && startButton.IsVisible && startButton.ActualHeight == stopButton.ActualHeight,
+                    "Compact layout keeps the aligned stream controls accessible");
                 window.Width = 760; window.Height = 650;
                 Snapshot(window, "main-minimum.png");
                 window.Width = 1380; window.Height = 960;
@@ -151,7 +229,32 @@ class DesktopTests
                     fileUiReady = ((System.Windows.Controls.ListBox)fileWindow.FindName("RemoteFiles")).ItemsSource != null;
                     Snapshot(fileWindow,"transfer-window.png");
                     ((System.Windows.Controls.Button)fileWindow.FindName("NextPage")).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
-                    Check(galleryList.Items.Count == 2 && ((System.Windows.Controls.Image)fileWindow.FindName("SelectedPreview")).Source == null, "Gallery pagination limits visible items and clears the previous selection preview");
+                    Check(galleryList.Items.Count == 2 && ((TextBlock)fileWindow.FindName("SelectedName")).Text == "Фото 01.png",
+                        "Gallery pagination keeps selected files across pages");
+                    var secondPagePhoto = (RemoteEntry)galleryList.Items[0];
+                    galleryList.SelectedItems.Add(secondPagePhoto);
+                    var chosen = Field<HashSet<RemoteEntry>>(fileDialog, "selection");
+                    Check(chosen.Count == 2 && !((System.Windows.Controls.Button)fileWindow.FindName("ReceiveClipboard")).IsEnabled &&
+                        ((System.Windows.Controls.Button)fileWindow.FindName("ReceiveSave")).Content.ToString().Contains("(2)"),
+                        "Batch save includes files selected on different pages");
+                    Snapshot(fileWindow,"transfer-batch-selection.png");
+                    string batchFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Received-Test", gallery);
+                    Directory.CreateDirectory(batchFolder);
+                    string existing = Path.Combine(batchFolder, "Фото 01.png");
+                    File.WriteAllText(existing, "existing file");
+                    await (Task)fileDialog.GetType().GetMethod("SaveBatch", Flags).Invoke(fileDialog, new object[] { new List<RemoteEntry>(chosen), batchFolder });
+                    Check(File.ReadAllText(existing) == "existing file" && File.Exists(Path.Combine(batchFolder, "Фото 01 (1).png")) &&
+                        File.Exists(Path.Combine(batchFolder, secondPagePhoto.Name)) && chosen.Count == 0 &&
+                        ((TextBlock)fileWindow.FindName("TransferStatus")).Text.Contains("2 из 2"),
+                        "Batch save reports the completed count and preserves existing files");
+                    var failedPhoto = new RemoteEntry { Name = "fail.png", Path = "/sdcard/DCIM/Camera/" + gallery + "/fail.png" };
+                    chosen.UnionWith(new[] { secondPagePhoto, failedPhoto });
+                    string retryFolder = Path.Combine(batchFolder, "Partial");
+                    await (Task)fileDialog.GetType().GetMethod("SaveBatch", Flags).Invoke(fileDialog,
+                        new object[] { new List<RemoteEntry> { secondPagePhoto, failedPhoto }, retryFolder });
+                    Check(chosen.SetEquals(new[] { failedPhoto }) && Directory.GetFiles(retryFolder).Length == 1 &&
+                        ((TextBlock)fileWindow.FindName("TransferStatus")).Text.Contains("1 из 2"),
+                        "A failed batch keeps completed originals and leaves unfinished files selected for retry");
                     ((System.Windows.Controls.Button)fileWindow.FindName("SendClipboardImage")).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
                     await Until(() => !Field<bool>(fileDialog,"busy"));
                     Check(((TextBlock)fileWindow.FindName("TransferStatus")).Text.Contains("размер проверен") && ((System.Windows.Controls.Button)fileWindow.FindName("OpenSentFile")).IsEnabled, "PNG-only clipboard upload through the actual button confirms delivery and enables opening on the phone without touching the user's clipboard");
@@ -159,6 +262,7 @@ class DesktopTests
                 };
                 fileDialog.Show();
                 Check(fileUiReady, "Owned transfer dialog loads its themed layout and lists only fixture phone files");
+                await CheckExplorerSend(storage, galleryPath);
                 var waiting = new WirelessPairing((args, token) => Task.FromResult(new CommandResult { ExitCode = 0, Output = "", Error = "" }), token => Task.Delay(25, token));
                 var qrDialog = new QrPairingDialog(window, waiting);
                 var qrWindow = Field<Window>(qrDialog, "window");
@@ -178,6 +282,8 @@ class DesktopTests
                 ((CheckBox)window.FindName("AlwaysOnTop")).IsChecked = true;
                 await (Task)Invoke(controller, "Start");
                 var mirror = Field<Process>(controller, "mirror");
+                await Until(() => ((TextBlock)window.FindName("ProfileActualFps")).Text == "43 FPS");
+                Check(((TextBlock)window.FindName("SessionHint")).Text.Contains("Фактически 43 FPS"), "Android session shows the engine's measured FPS beside the limit");
                 Check(mirror != null && !mirror.HasExited && !window.IsVisible, "Settings hide only after the mirror window opens; the stream stays alive");
                 Check((GetWindowLong(mirror.MainWindowHandle, -20) & 8) != 0, "Mirror window is actually pinned at startup");
                 ((CheckBox)window.FindName("AlwaysOnTop")).IsChecked = false;
@@ -193,6 +299,7 @@ class DesktopTests
                 Check(((CheckBox)window.FindName("AlwaysOnTop")).IsChecked == true && (GetWindowLong(mirror.MainWindowHandle, -20) & 8) != 0, "Tray pin action updates the live mirror and settings together");
                 menu.Items[1].PerformClick();
                 await Until(() => Field<Process>(controller, "mirror") == null && window.IsVisible);
+                Check(((Grid)window.FindName("ProfileActualRow")).Visibility == Visibility.Collapsed, "Stopping a session clears its measured FPS");
                 Check(true, "Tray Stop ends only the owned fixture and restores settings");
                 ((CheckBox)window.FindName("AutoTray")).IsChecked = false;
                 await (Task)Invoke(controller, "Start");
@@ -206,8 +313,34 @@ class DesktopTests
                 mirror.Kill();
                 await Until(() => Field<Process>(controller, "mirror") == null && window.IsVisible);
                 Check(((TextBlock)window.FindName("Notice")).Text.Contains("прервана"), "Unexpected stream loss restores settings and explains the error");
-                await (Task)Invoke(controller, "Start");
+                var resume = (System.Windows.Controls.Button)window.FindName("ResumeButton");
+                window.UpdateLayout();
+                Check(resume.IsVisible && resume.ActualHeight == startButton.ActualHeight && resume.ActualHeight == stopButton.ActualHeight,
+                    "Interrupted Android mirror offers a manual resume aligned with Start and Stop");
+                try
+                {
+                    File.WriteAllText(unauthorized, "test only");
+                    File.WriteAllText(Path.Combine(storage, "wifi-enabled"), "test only");
+                    await Until(() => !Field<bool>(controller, "refreshing"));
+                    await (Task)Invoke(controller, "Resume");
+                    Check(Field<Process>(controller, "mirror") == null && resume.IsVisible &&
+                        ((TextBlock)window.FindName("Notice")).Text.Contains("USB"),
+                        "Resume waits for the original connection even when another transport is ready");
+                }
+                finally
+                {
+                    File.Delete(unauthorized);
+                    File.Delete(Path.Combine(storage, "wifi-enabled"));
+                }
+                fps.SelectedIndex = 3;
+                ((CheckBox)window.FindName("Audio")).IsChecked = false;
+                await Until(() => !Field<bool>(controller, "refreshing"));
+                resume.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                await Until(() => Field<Process>(controller, "mirror") != null && !window.IsVisible);
                 mirror = Field<Process>(controller, "mirror");
+                Check(Field<Device>(controller, "activeDevice").Serial == "TEST-PHONE" && fps.SelectedIndex == 0 &&
+                    ((CheckBox)window.FindName("Audio")).IsChecked == true && resume.Visibility == Visibility.Collapsed,
+                    "Resume restores the original device, frame rate and audio settings");
                 var notification = Field<NotifyIcon>(tray, "notification");
                 menu.Items["exit"].PerformClick();
                 Check(Field<bool>(controller, "closing") && mirror.HasExited && !notification.Visible, "Tray Exit terminates the owned stream and removes the icon");
@@ -223,6 +356,43 @@ class DesktopTests
         };
         application.Run();
         return result;
+    }
+
+    static async Task CheckExplorerSend(string storage, string galleryPath)
+    {
+        string marker = Path.Combine(storage, "send-second-phone");
+        string target = Path.Combine(storage, "last-send-target");
+        string document = Path.Combine(galleryPath, "Заметка с пробелами.txt");
+        File.WriteAllText(document, "Explorer transfer test");
+        File.WriteAllText(marker, "test only");
+        var dialog = new SendFilesDialog(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "FakeRuntime", "adb.exe"),
+            new[] { document, Path.Combine(galleryPath, "Фото 01.png"), galleryPath });
+        var window = Field<Window>(dialog, "window");
+        try
+        {
+            window.Show();
+            await Until(() => !Field<bool>(dialog, "busy"));
+            var device = (ComboBox)window.FindName("SendDevice");
+            var send = (System.Windows.Controls.Button)window.FindName("SendStart");
+            Check(device.Items.Count == 2 && device.SelectedIndex == -1 && !send.IsEnabled &&
+                ((TextBlock)window.FindName("SendCount")).Text.Contains("К отправке: 2"),
+                "Explorer batch shows the files and requires a recipient when multiple Android devices are ready");
+            device.SelectedIndex = 1;
+            Check(send.IsEnabled && ((TextBlock)window.FindName("SendStatus")).Text.Contains("Pictures/Morror"),
+                "Choosing a recipient enables sending and shows the phone folders");
+            Snapshot(window, "explorer-send.png");
+            send.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            await Until(() => !Field<bool>(dialog, "busy"));
+            Check(File.ReadAllText(target) == "SECOND-PHONE" && ((TextBlock)window.FindName("SendStatus")).Text.Contains("2 из 2") &&
+                ((System.Windows.Controls.ListBox)window.FindName("SendList")).Items.Count == 0,
+                "Explorer sends both Unicode filenames to the selected recipient and reports completion");
+        }
+        finally
+        {
+            window.Close();
+            File.Delete(marker);
+            File.Delete(target);
+        }
     }
 
     static void CheckSettingsPersistence()

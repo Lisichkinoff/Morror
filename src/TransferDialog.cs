@@ -19,15 +19,17 @@ namespace Morror
         readonly string receiveFolder;
         readonly Func<IDataObject> readClipboard;
         readonly CancellationTokenSource lifetime = new CancellationTokenSource();
-        bool busy, closed, loaded;
+        bool busy, closed, loaded, restoringSelection;
         TransferReceipt lastSent;
         List<RemoteEntry> entries = new List<RemoteEntry>();
+        readonly HashSet<RemoteEntry> selection = new HashSet<RemoteEntry>();
         CancellationTokenSource previews;
+        CancellationTokenSource batch;
         int page;
         const int PageSize = 12;
         string directory = "/sdcard/DCIM/Camera";
         T Get<T>(string name) where T : class { return window.FindName(name) as T; }
-        RemoteEntry Selected { get { return Get<ListBox>("RemoteFiles").SelectedItem as RemoteEntry; } }
+        RemoteEntry Selected { get { return selection.Count == 1 ? selection.First() : null; } }
 
         public TransferDialog(Window owner, FileTransfer transfer, string model, string receiveFolder = null, Func<IDataObject> readClipboard = null)
         {
@@ -43,10 +45,27 @@ namespace Morror
             Get<Button>("RemoteRefresh").Click += async (s, e) => await Load(directory);
             Get<Button>("RemoteUp").Click += async (s, e) => await Load(directory == "/sdcard" ? directory : directory.Substring(0, directory.LastIndexOf('/')));
             Get<ComboBox>("RemoteFolder").SelectionChanged += async (s, e) => { if (loaded && !busy) await Load((string)((ComboBoxItem)Get<ComboBox>("RemoteFolder").SelectedItem).Tag); };
-            Get<ListBox>("RemoteFiles").SelectionChanged += (s, e) => { UpdateButtons(); UpdatePreview(); };
+            Get<ListBox>("RemoteFiles").SelectionChanged += (s, e) =>
+            {
+                if (restoringSelection) return;
+                selection.ExceptWith(e.RemovedItems.Cast<RemoteEntry>());
+                selection.UnionWith(e.AddedItems.Cast<RemoteEntry>());
+                UpdateButtons();
+                UpdatePreview();
+            };
+            Get<Button>("ClearSelection").Click += (s, e) => { selection.Clear(); RestorePageSelection(); };
+            Get<Button>("CancelBatch").Click += (s, e) =>
+            {
+                batch.Cancel();
+                Get<Button>("CancelBatch").IsEnabled = false;
+            };
             Get<Button>("PreviousPage").Click += (s, e) => { if (page > 0) { page--; ShowPage(); } };
             Get<Button>("NextPage").Click += (s, e) => { if ((page + 1) * PageSize < entries.Count) { page++; ShowPage(); } };
-            Get<ListBox>("RemoteFiles").MouseDoubleClick += async (s, e) => { var item = Selected; if (item != null && item.IsDirectory) await Load(item.Path); };
+            Get<ListBox>("RemoteFiles").MouseDoubleClick += async (s, e) =>
+            {
+                var item = Get<ListBox>("RemoteFiles").SelectedItem as RemoteEntry;
+                if (item != null && item.IsDirectory) await Load(item.Path);
+            };
             Get<Button>("ReceiveClipboard").Click += async (s, e) => await Receive(true);
             Get<Button>("ReceiveSave").Click += async (s, e) => await Receive(false);
             Get<Button>("ReceiveScreen").Click += async (s, e) => await Operation(async () =>
@@ -87,8 +106,30 @@ namespace Morror
         void UpdateButtons()
         {
             if (closed) return;
-            bool file = Selected != null && !Selected.IsDirectory;
-            foreach (string name in new[] { "ReceiveClipboard", "ReceiveSave" }) Get<Button>(name).IsEnabled = !busy && file;
+            int fileCount = selection.Count(item => !item.IsDirectory);
+            bool multiple = fileCount > 1;
+            var copy = Get<Button>("ReceiveClipboard");
+            copy.IsEnabled = !busy && selection.Count == 1 && fileCount == 1;
+            copy.Visibility = multiple ? Visibility.Collapsed : Visibility.Visible;
+            var save = Get<Button>("ReceiveSave");
+            save.IsEnabled = !busy && fileCount > 0;
+            save.Content = multiple ? "Сохранить файлы (" + fileCount + ")…" : "Сохранить…";
+            Grid.SetColumn(save, multiple ? 0 : 1);
+            save.Margin = multiple ? new Thickness(0) : new Thickness(8, 0, 0, 0);
+            if (multiple)
+            {
+                save.Background = copy.Background;
+                save.BorderBrush = copy.BorderBrush;
+                save.Foreground = copy.Foreground;
+            }
+            else
+            {
+                save.ClearValue(Control.BackgroundProperty);
+                save.ClearValue(Control.BorderBrushProperty);
+                save.ClearValue(Control.ForegroundProperty);
+            }
+            Get<Button>("ClearSelection").Visibility = selection.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            Get<Button>("ClearSelection").IsEnabled = !busy;
             foreach (string name in new[] { "RemoteFolder", "RemoteFiles", "RemoteRefresh", "SendFile", "SendClipboardImage", "ReceiveScreen" }) Get<Control>(name).IsEnabled = !busy;
             Get<Button>("RemoteUp").IsEnabled = !busy && directory != "/sdcard";
             Get<Button>("OpenSentFile").IsEnabled = !busy && lastSent != null && !string.IsNullOrEmpty(lastSent.MediaUri);
@@ -119,16 +160,35 @@ namespace Morror
                 var files = await transfer.List(path, lifetime.Token);
                 if (closed) return;
                 directory = path; Get<TextBlock>("RemotePath").Text = directory;
+                selection.Clear();
                 entries = files; page = 0; ShowPage();
-                Status(entries.Count == 0 ? "Папка пуста. Выберите другую папку выше." : "Выберите файл для копирования. Папки открываются двойным щелчком.");
+                Status(entries.Count == 0 ? "Папка пуста. Выберите другую папку выше." : "Выберите файлы через Ctrl или Shift. Выбор сохраняется между страницами.");
             }, "Читаем папку телефона…");
         }
 
         void UpdatePreview()
         {
             var selected = Selected;
+            Get<Border>("SelectionPreview").Visibility = selection.Count > 1 ? Visibility.Collapsed : Visibility.Visible;
             Get<System.Windows.Controls.Image>("SelectedPreview").Source = selected == null ? null : selected.Preview;
-            Get<TextBlock>("SelectedName").Text = selected == null ? "Выберите фото" : selected.Name;
+            Get<TextBlock>("SelectedName").Text = selected != null ? selected.Name
+                : selection.Count == 0 ? "Выберите фото" : "Выбрано файлов: " + selection.Count(item => !item.IsDirectory);
+        }
+
+        void RestorePageSelection(List<RemoteEntry> visible = null)
+        {
+            var list = Get<ListBox>("RemoteFiles");
+            restoringSelection = true;
+            try
+            {
+                if (visible != null) list.ItemsSource = visible;
+                list.SelectedItems.Clear();
+                foreach (var item in list.Items.Cast<RemoteEntry>().Where(selection.Contains))
+                    list.SelectedItems.Add(item);
+            }
+            finally { restoringSelection = false; }
+            UpdateButtons();
+            UpdatePreview();
         }
 
         void ShowPage()
@@ -138,9 +198,8 @@ namespace Morror
             var visible = entries.Skip(page * PageSize).Take(PageSize).ToList();
             // Bound decoded memory as well as network traffic; other pages reload on demand.
             foreach (var entry in entries.Except(visible)) { entry.Preview = null; entry.PreviewHint = null; }
-            Get<ListBox>("RemoteFiles").ItemsSource = visible;
+            RestorePageSelection(visible);
             Get<TextBlock>("PageLabel").Text = (page + 1) + " / " + Math.Max(1, (entries.Count + PageSize - 1) / PageSize) + " · " + entries.Count + " файлов и папок";
-            UpdateButtons(); UpdatePreview();
             LoadPreviews(visible, previews);
         }
 
@@ -193,8 +252,19 @@ namespace Morror
         }
         async Task Receive(bool clipboard)
         {
-            var item = Selected;
-            if (busy || item == null || item.IsDirectory) return;
+            if (busy || closed) return;
+            var files = entries.Where(entry => selection.Contains(entry) && !entry.IsDirectory).ToList();
+            if (files.Count == 0 || clipboard && selection.Count != 1) return;
+            if (files.Count > 1)
+            {
+                using (var folder = new System.Windows.Forms.FolderBrowserDialog { Description = "Выберите папку для сохранения файлов с телефона." })
+                {
+                    if (folder.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                        await SaveBatch(files, folder.SelectedPath);
+                }
+                return;
+            }
+            var item = files[0];
             string destination; bool replace = false;
             if (clipboard) destination = FileTransfer.NewLocalPath(receiveFolder, item.Name);
             else
@@ -214,6 +284,59 @@ namespace Morror
                 }
                 else Status("Файл сохранён: " + path);
             }, "Копируем оригинал файла на ПК…");
+        }
+
+        async Task SaveBatch(List<RemoteEntry> files, string folder)
+        {
+            var progress = Get<ProgressBar>("BatchProgress");
+            var cancel = Get<Button>("CancelBatch");
+            var openDownloads = Get<Button>("OpenReceivedFolder");
+            using (var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token))
+            {
+                batch = cancellation;
+                progress.Maximum = files.Count;
+                progress.Value = 0;
+                progress.Visibility = Visibility.Visible;
+                cancel.IsEnabled = true;
+                cancel.Visibility = Visibility.Visible;
+                openDownloads.Visibility = Visibility.Collapsed;
+                try
+                {
+                    await Operation(async () =>
+                    {
+                        int saved = 0;
+                        foreach (var item in files)
+                        {
+                            Status("Сохранено " + saved + " из " + files.Count + ". Копируем " + item.Name + "…");
+                            try
+                            {
+                                cancellation.Token.ThrowIfCancellationRequested();
+                                await transfer.Pull(item.Path, FileTransfer.NewLocalPath(folder, item.Name), cancellation.Token);
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                Status("Передача отменена. Сохранено " + saved + " из " + files.Count + " в " + folder);
+                                ResultTitle("Отменено", System.Windows.Media.Brushes.LightGray);
+                                return;
+                            }
+                            catch (Exception error)
+                            {
+                                throw new IOException("Сохранено " + saved + " из " + files.Count + ". Ошибка при сохранении «" + item.Name + "».\n" + error.Message, error);
+                            }
+                            selection.Remove(item);
+                            progress.Value = ++saved;
+                        }
+                        Status("Сохранено " + saved + " из " + files.Count + " в " + folder);
+                    }, "Сохраняем файлы…");
+                }
+                finally
+                {
+                    batch = null;
+                    progress.Visibility = cancel.Visibility = Visibility.Collapsed;
+                    openDownloads.Visibility = Visibility.Visible;
+                    if (!closed) RestorePageSelection();
+                }
+            }
         }
         async Task SendFile()
         {

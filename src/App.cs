@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -20,7 +21,13 @@ namespace Morror
         bool wifi, refreshing, networkBusy, starting, closing, stopRequested, exitRequested, hiddenToTray, trayHintShown, applyingPreset;
         Process mirror;
         Process iPhoneWindow;
-        string activeSerial, activeModel;
+        Device activeDevice, interruptedDevice;
+        bool streamStarted;
+        Dictionary<string, object> interruptedSettings;
+        string preferredUsbSerial;
+        Device usbMigrationDevice;
+        int? actualFps;
+        static readonly Regex ScrcpyFps = new Regex(@"^(?:INFO:\s*)?([0-9]+) fps(?: \(\+[0-9]+ frames skipped\))?$", RegexOptions.CultureInvariant);
         DispatcherTimer timer;
         TrayController tray;
         EventWaitHandle restoreEvent;
@@ -113,6 +120,11 @@ namespace Morror
                 MessageBox.Show("Morror обновляется и откроется снова после установки.", "Обновление Morror");
                 return;
             }
+            if (args.Length > 0 && args[0] == SendFilesDialog.LaunchArgument)
+            {
+                SendFilesDialog.Run(args.Skip(1));
+                return;
+            }
             using (var mutex = new Mutex(false, "Local\\Morror.Desktop"))
             {
                 if (!mutex.WaitOne(0))
@@ -151,7 +163,7 @@ namespace Morror
         {
             using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("MainWindow.xaml")) window = (Window)XamlReader.Load(stream);
             var area = SystemParameters.WorkArea;
-            window.MinWidth = Math.Min(760, area.Width);
+            window.MinWidth = Math.Min(window.MinWidth, area.Width);
             window.MinHeight = Math.Min(window.MinHeight, area.Height);
             window.Width = Math.Min(window.Width, area.Width);
             window.Height = Math.Min(window.Height, area.Height);
@@ -159,7 +171,11 @@ namespace Morror
             {
                 UpdateLayout();
             };
+            WindowFrame.Bind(window, Get<Border>("WindowFrame"), Get<Button>("MinimizeButton"), Get<Button>("MaximizeButton"), Get<Button>("CloseButton"));
             Get<Button>("OverviewNav").Click += (s, e) => ShowPage("Dashboard");
+            Get<Button>("AndroidTask").Click += async (s, e) => { ShowAndroidSetup(true); await Refresh(); };
+            Get<Button>("IPhoneTask").Click += async (s, e) => { if (!Running && !starting) ShowAndroidSetup(false); await OpenIPhone(); };
+            Get<Button>("MonitorTask").Click += (s, e) => { if (!Running && !starting) ShowAndroidSetup(false); OpenSecondScreen(); };
             Get<Button>("SettingsNav").Click += (s, e) => ShowPage("Settings");
             Get<Button>("OpenSettingsButton").Click += (s, e) => ShowPage("Settings");
             Get<Button>("LogNav").Click += (s, e) => ShowPage("Log");
@@ -169,12 +185,9 @@ namespace Morror
                 window.Icon = decoder.Frames.OrderByDescending(frame => frame.PixelWidth).First();
                 Get<Image>("BrandIcon").Source = window.Icon;
             }
-            Get<Button>("MinimizeButton").Click += (s, e) => SystemCommands.MinimizeWindow(window);
-            Get<Button>("MaximizeButton").Click += (s, e) => { if (window.WindowState == WindowState.Maximized) SystemCommands.RestoreWindow(window); else SystemCommands.MaximizeWindow(window); };
-            Get<Button>("CloseButton").Click += (s, e) => window.Close();
             Get<Button>("DownloadUpdate").Click += async (s, e) => await DownloadUpdateAsync();
             Get<Button>("LaterUpdate").Click += (s, e) => Get<Border>("UpdateNotice").Visibility = Visibility.Collapsed;
-            Get<TextBlock>("SidebarVersion").Text = "MORROR  /  " + AppVersion.Number;
+            Get<TextBlock>("SidebarVersion").Text = "Morror " + AppVersion.Number;
             LoadStreamSettings();
             Get<ComboBox>("FrameRate").SelectionChanged += (s, e) => UpdateFrameRateSummary();
             Get<ComboBox>("Quality").SelectionChanged += (s, e) => VideoSettingChanged();
@@ -195,10 +208,10 @@ namespace Morror
             Get<Button>("UsbWifiButton").Click += async (s, e) => await UsbToWifi();
             Get<Button>("KeyboardSettings").Click += async (s, e) =>
             {
-                if (!Running || string.IsNullOrEmpty(activeSerial)) return;
+                if (!Running || activeDevice == null) return;
                 try
                 {
-                    var result = await Commands.Run(Adb, 8000, "-s", activeSerial, "shell", "am", "start", "-a", "android.settings.HARD_KEYBOARD_SETTINGS");
+                    var result = await Commands.Run(Adb, 8000, "-s", activeDevice.Serial, "shell", "am", "start", "-a", "android.settings.HARD_KEYBOARD_SETTINGS");
                     Notice(result.ExitCode == 0 && !result.Combined.Contains("Error") ? "Выберите клавиатуру scrcpy и добавьте русский и английский. Переключение обычно Ctrl+Пробел." : "Откройте на телефоне: Настройки → Язык и ввод → Физическая клавиатура.");
                 }
                 catch (Exception error) { Notice(error.Message); }
@@ -225,15 +238,16 @@ namespace Morror
             Get<Button>("ConnectButton").Click += async (s, e) => await Network(false);
             Get<Button>("QrButton").Click += async (s, e) => await ConnectWithQr();
             Get<Button>("StartButton").Click += async (s, e) => await Start();
+            Get<Button>("ResumeButton").Click += async (s, e) => await Resume();
             Get<Button>("StopButton").Click += (s, e) => Stop();
             Get<Button>("TransferButton").Click += (s, e) => OpenTransfer();
-            Get<Button>("SecondScreenButton").Click += (s, e) => new SecondScreenDialog(window, Adb, Get<ComboBox>("Devices").SelectedItem as Device).Show();
+            Get<Button>("SecondScreenButton").Click += (s, e) => OpenSecondScreen();
             Get<Button>("IPhoneButton").Click += async (s, e) => await OpenIPhone();
             Get<CheckBox>("Control").Checked += (s, e) => UpdateButtons();
             Get<CheckBox>("Control").Unchecked += (s, e) => UpdateButtons();
             Get<CheckBox>("AlwaysOnTop").Checked += (s, e) => ApplyPin();
             Get<CheckBox>("AlwaysOnTop").Unchecked += (s, e) => ApplyPin();
-            Get<ComboBox>("Devices").SelectionChanged += async (s, e) => { UpdateButtons(); await UpdateDeviceProfile(); };
+            Get<ComboBox>("Devices").SelectionChanged += async (s, e) => { UpdateDeviceSelection(); UpdateButtons(); await UpdateDeviceProfile(); };
             window.StateChanged += (s, e) =>
             {
                 if (closing) return;
@@ -291,9 +305,15 @@ namespace Morror
         void LoadStreamSettings()
         {
             if (settingsPath == null) return;
+            try { ApplyStreamSettings(StreamSettings.Load(settingsPath)); }
+            catch (Exception error) { AddLog("Чтение настроек: " + error.Message); }
+        }
+
+        void ApplyStreamSettings(Dictionary<string, object> values)
+        {
+            applyingPreset = true;
             try
             {
-                var values = StreamSettings.Load(settingsPath);
                 foreach (string name in SelectionSettings)
                 {
                     var control = Get<ComboBox>(name);
@@ -312,19 +332,24 @@ namespace Morror
                     Get<ComboBox>("FrameRate").SelectedIndex != (index == 1 ? 1 : 2)))
                     preset.SelectedIndex = 3;
             }
-            catch (Exception error) { AddLog("Чтение настроек: " + error.Message); }
+            finally { applyingPreset = false; }
+        }
+
+        Dictionary<string, object> CaptureStreamSettings()
+        {
+            var values = new Dictionary<string, object>();
+            foreach (string name in SelectionSettings) values[name] = Get<ComboBox>(name).SelectedIndex;
+            foreach (string name in ToggleSettings) values[name] = Get<CheckBox>(name).IsChecked == true;
+            return values;
         }
 
         void SaveStreamSettings()
         {
             if (settingsPath == null || applyingPreset || closing) return;
-            var values = new Dictionary<string, object>();
-            foreach (string name in SelectionSettings) values[name] = Get<ComboBox>(name).SelectedIndex;
-            foreach (string name in ToggleSettings) values[name] = Get<CheckBox>(name).IsChecked == true;
             var status = Get<TextBlock>("SettingsSaveStatus");
             try
             {
-                StreamSettings.Save(settingsPath, values);
+                StreamSettings.Save(settingsPath, CaptureStreamSettings());
                 status.Visibility = Visibility.Collapsed;
             }
             catch (Exception error)
@@ -463,32 +488,38 @@ namespace Morror
 
         void UpdateLayout()
         {
-            bool compact = window.ActualWidth < 1060;
-            Get<ColumnDefinition>("SidebarColumn").Width = new GridLength(compact ? 76 : 204);
-            foreach (string name in new[] { "BrandLabel", "NavSectionLabel", "OverviewLabel", "TransferLabel", "SecondScreenLabel", "IPhoneLabel", "SettingsLabel", "LogLabel", "SidebarNote" })
+            bool compact = window.ActualWidth <= 800;
+            Get<ColumnDefinition>("SidebarColumn").Width = new GridLength(compact ? 66 : 166);
+            foreach (string name in new[] { "BrandLabel", "OverviewLabel", "TransferLabel", "SecondScreenLabel", "IPhoneLabel", "SettingsLabel", "LogLabel", "SidebarVersion" })
                 Get<FrameworkElement>(name).Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
-            Get<FrameworkElement>("HeroArt").Width = compact ? 220 : 300;
-            // Keep device details on moderately sized windows; only the smallest layout needs one column.
             bool singleColumn = window.ActualWidth < 900;
             Get<StackPanel>("ProfilePanel").Visibility = singleColumn ? Visibility.Collapsed : Visibility.Visible;
-            Get<ColumnDefinition>("ProfileColumn").Width = new GridLength(singleColumn ? 0 : 238);
-            Get<ColumnDefinition>("ProfileGap").Width = new GridLength(singleColumn ? 0 : 18);
+            Get<ColumnDefinition>("ProfileColumn").Width = singleColumn ? new GridLength(0) : new GridLength(0.43, GridUnitType.Star);
+            Get<ColumnDefinition>("ProfileGap").Width = new GridLength(singleColumn ? 0 : 12);
         }
 
         void ShowPage(string page)
         {
             foreach (string name in new[] { "Dashboard", "Settings", "Log" })
                 Get<StackPanel>(name + "Page").Visibility = name == page ? Visibility.Visible : Visibility.Collapsed;
-            Get<TextBlock>("PageTitle").Text = page == "Settings" ? "Настройки трансляции" : page == "Log" ? "Журнал подключения" : "Обзор подключения";
-            Get<TextBlock>("PageEyebrow").Text = page == "Settings" ? "КАЧЕСТВО, ЗВУК И УПРАВЛЕНИЕ" : page == "Log" ? "СОБЫТИЯ И ДИАГНОСТИКА" : "ВАШЕ ЛИЧНОЕ ПРОСТРАНСТВО";
-            var converter = new System.Windows.Media.BrushConverter();
+            Get<TextBlock>("PageTitle").Text = page == "Settings" ? "Настройки трансляции" : page == "Log" ? "Журнал подключения" : "Что хотите сделать?";
+            string selectedNav = page == "Dashboard" ? "OverviewNav" : page + "Nav";
             foreach (string name in new[] { "OverviewNav", "SettingsNav", "LogNav" })
-            {
-                bool active = name == (page == "Dashboard" ? "OverviewNav" : page + "Nav");
-                Get<Button>(name).Background = (System.Windows.Media.Brush)converter.ConvertFromString(active ? "#8370D6" : "Transparent");
-                Get<Button>(name).Foreground = (System.Windows.Media.Brush)converter.ConvertFromString(active ? "#FFFFFF" : "#A5A3B8");
-            }
+                Get<Button>(name).Tag = name == selectedNav ? "Selected" : null;
             Get<ScrollViewer>("MainScroll").ScrollToTop();
+        }
+
+        void ShowAndroidSetup(bool show)
+        {
+            var visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            Get<Grid>("AndroidSetup").Visibility = visibility;
+            Get<Grid>("StreamActions").Visibility = visibility;
+            Get<Button>("AndroidTask").Tag = show ? "Selected" : null;
+        }
+
+        void OpenSecondScreen()
+        {
+            new SecondScreenDialog(window, Adb, Get<ComboBox>("Devices").SelectedItem as Device).Show();
         }
 
         void InitializeTray()
@@ -545,33 +576,42 @@ namespace Morror
         void OpenTransfer()
         {
             var device = Get<ComboBox>("Devices").SelectedItem as Device;
-            string serial = Running ? activeSerial : device != null && device.Ready ? device.Serial : null;
-            string model = Running ? activeModel : device != null ? device.Model : "Android";
-            if (closing || starting || string.IsNullOrEmpty(serial)) return;
-            var dialog = new TransferDialog(window, new FileTransfer(Adb, serial), model);
+            if (Running) device = activeDevice;
+            if (closing || starting || device == null || !device.Ready) return;
+            var dialog = new TransferDialog(window, new FileTransfer(Adb, device.Serial), device.Model);
             dialog.Show();
         }
 
         void SetMode(bool wireless)
         {
-            if (wifi != wireless) Get<ComboBox>("Devices").SelectedItem = null;
+            bool changed = wifi != wireless;
             wifi = wireless;
+            if (changed) Get<ComboBox>("Devices").ItemsSource = null;
             Get<StackPanel>("WifiPanel").Visibility = wifi ? Visibility.Visible : Visibility.Collapsed;
-            var converter = new System.Windows.Media.BrushConverter();
-            var selected = (System.Windows.Media.Brush)converter.ConvertFromString("#A99AFF");
-            var normal = (System.Windows.Media.Brush)converter.ConvertFromString("#343542");
-            var dark = (System.Windows.Media.Brush)converter.ConvertFromString("#272139");
-            var light = (System.Windows.Media.Brush)converter.ConvertFromString("#F4F3FA");
-            var border = (System.Windows.Media.Brush)converter.ConvertFromString("#454657");
-            foreach (string name in new[] { "UsbButton", "WifiButton" })
-            {
-                bool active = (name == "WifiButton") == wifi;
-                var button = Get<Button>(name);
-                button.Background = active ? selected : normal;
-                button.Foreground = active ? dark : light;
-                button.BorderBrush = active ? selected : border;
-            }
-            Get<TextBlock>("ConnectionHint").Text = wifi ? "Одна сеть с ПК. Android 11+: QR или код; остальные: сначала USB." : "Подключите кабель и разрешите отладку на телефоне.";
+            Get<Button>("UsbButton").Tag = wifi ? null : "Selected";
+            Get<Button>("WifiButton").Tag = wifi ? "Selected" : null;
+            Get<TextBlock>("ConnectionHint").Text = wifi
+                ? "Подключите телефон и ПК к одной сети. На Android 11+ включите беспроводную отладку и выберите QR-код или код сопряжения."
+                : "Включите USB-отладку и подключите телефон кабелем с передачей данных.";
+            UpdateDeviceSelection();
+            UpdateButtons();
+        }
+
+        void UpdateDeviceSelection()
+        {
+            var selector = Get<ComboBox>("Devices");
+            var device = selector.SelectedItem as Device;
+            bool ready = device != null && device.Ready;
+            if (device != null && !device.Wireless) preferredUsbSerial = device.Serial;
+            Get<TextBlock>("ConnectionHint").Visibility = device == null ? Visibility.Visible : Visibility.Collapsed;
+            Get<TextBlock>("DeviceHint").Visibility = ready ? Visibility.Collapsed : Visibility.Visible;
+            Get<TextBlock>("DeviceHint").Text = device == null
+                ? (wifi ? "Выберите способ подключения по Wi-Fi." : "Ожидаем телефон по USB.")
+                : device.State == "unauthorized" ? "Разблокируйте телефон и подтвердите «Разрешить отладку»."
+                : !device.Ready ? "Устройство недоступно. Переподключите его и проверьте разрешение отладки."
+                : "Готов к трансляции";
+            selector.ToolTip = device == null ? null : device.Serial;
+            if (!Running && !starting) Badge(ready ? "●  Устройство готово" : "●  Ожидание", ready);
         }
 
         int SelectedFrameRate()
@@ -584,8 +624,19 @@ namespace Morror
         void UpdateFrameRateSummary()
         {
             int fps = SelectedFrameRate();
-            Get<TextBlock>("ProfileFps").Text = fps == 0 ? "Авто" : fps + " FPS";
-            Get<TextBlock>("FpsHint").Text = fps == 0 ? "Как на устройстве: Morror не ограничивает FPS. Реальная частота зависит от контента и захвата телефона." : "До " + fps + " FPS, если экран и захват телефона поддерживают эту частоту. Фактический FPS — в журнале.";
+            Get<TextBlock>("ProfileFps").Text = fps == 0 ? "Без лимита" : fps + " FPS";
+            Get<TextBlock>("FpsHint").Text = fps == 0 ? "Реальная частота зависит от контента и захвата телефона." : "До " + fps + " FPS, если экран и захват телефона поддерживают эту частоту.";
+        }
+
+        void RenderStreamFps()
+        {
+            Get<Grid>("ProfileActualRow").Visibility = Running ? Visibility.Visible : Visibility.Collapsed;
+            string measured = actualFps.HasValue ? actualFps.Value + " FPS" : "—";
+            Get<TextBlock>("ProfileActualFps").Text = measured;
+            if (!Running) return;
+            var limit = Get<TextBlock>("ProfileFps").Text;
+            Get<TextBlock>("SessionHint").Text = activeDevice.Model + " · " + (SelectedFrameRate() == 0 ? limit : "Лимит " + limit)
+                + " · Фактически " + measured + " · Alt+F — полный экран · Alt+K — языки клавиатуры";
         }
 
         void RenderDeviceProfile(Device device, DeviceCapabilities info)
@@ -619,27 +670,43 @@ namespace Morror
             finally { pendingProfiles.Remove(device.Serial); }
         }
 
-        async Task Refresh()
+        async Task Refresh(string preferredSerial = null)
         {
-            if (refreshing || networkBusy || closing || Running && hiddenToTray || !File.Exists(Adb)) return;
-            refreshing = true; Get<Button>("RefreshButton").IsEnabled = false;
+            if (refreshing || networkBusy || starting || closing || Running && hiddenToTray || !File.Exists(Adb)) return;
+            refreshing = true; Get<Button>("RefreshButton").IsEnabled = false; UpdateButtons();
             try
             {
-                var result = await Commands.Run(Adb, 10000, "devices", "-l");
+                var all = await Commands.ListDevices(Adb, profileLifetime.Token);
                 if (closing) return;
-                if (result.ExitCode != 0) throw new Exception(result.Combined);
-                var previous = Get<ComboBox>("Devices").SelectedItem as Device;
-                var devices = Protocol.ParseDevices(result.Output).OrderByDescending(d => d.Wireless == wifi).ToList();
-                Get<ComboBox>("Devices").ItemsSource = devices;
-                Get<ComboBox>("Devices").SelectedItem = devices.FirstOrDefault(d => previous != null && d.Serial == previous.Serial) ?? devices.FirstOrDefault(d => d.Ready) ?? devices.FirstOrDefault();
-                var device = Get<ComboBox>("Devices").SelectedItem as Device;
-                Get<TextBlock>("ConnectionHint").Visibility = device != null && device.Ready ? Visibility.Collapsed : Visibility.Visible;
-                Get<TextBlock>("DeviceHint").Text = device == null ? (wifi ? "Выполните сопряжение по QR-коду, коду или сначала подключите USB." : "Телефон не найден. Проверьте кабель, отладку и USB-драйвер.") : device.State == "unauthorized" ? "Разблокируйте телефон и подтвердите доступ для этого ПК." : !device.Ready ? "Устройство недоступно. Проверьте разрешение отладки." : "Готов к трансляции";
-                Get<ComboBox>("Devices").ToolTip = device == null ? null : device.Serial;
+                SelectDevices(all, preferredSerial);
             }
-            catch (Exception e) { Get<TextBlock>("DeviceHint").Text = "Не удалось получить список устройств. Нажмите «Обновить»."; AddLog(e.Message); Get<ComboBox>("Devices").ItemsSource = null; }
+            catch (OperationCanceledException) { }
+            catch (Exception e)
+            {
+                usbMigrationDevice = null;
+                Get<ComboBox>("Devices").ItemsSource = null;
+                Get<TextBlock>("DeviceHint").Text = "Не удалось получить список устройств. Нажмите «Обновить».";
+                AddLog(e.Message);
+            }
             finally { refreshing = false; Get<Button>("RefreshButton").IsEnabled = true; UpdateButtons(); }
             await UpdateDeviceProfile();
+        }
+
+        void SelectDevices(List<Device> all, string preferredSerial)
+        {
+            var selector = Get<ComboBox>("Devices");
+            var previous = selector.SelectedItem as Device;
+            var preferredUsb = all.FirstOrDefault(d => !d.Wireless && d.Serial == preferredUsbSerial);
+            var usbReady = all.Where(d => !d.Wireless && d.Ready).ToList();
+            usbMigrationDevice = preferredUsb != null
+                ? (preferredUsb.Ready ? preferredUsb : null)
+                : (usbReady.Count == 1 ? usbReady[0] : null);
+            var devices = all.Where(d => d.Wireless == wifi).ToList();
+            var serial = preferredSerial ?? (previous != null ? previous.Serial : wifi ? null : preferredUsbSerial);
+            selector.ItemsSource = devices;
+            selector.SelectedItem = devices.FirstOrDefault(d => d.Serial == serial)
+                ?? devices.FirstOrDefault(d => d.Ready) ?? devices.FirstOrDefault();
+            UpdateDeviceSelection();
         }
 
         async Task Network(bool pairing)
@@ -714,8 +781,9 @@ namespace Morror
         async Task UsbToWifi()
         {
             if (networkBusy || Running || starting || closing) return;
-            var device = Get<ComboBox>("Devices").SelectedItem as Device;
-            if (device == null || !device.Ready || device.Wireless) { Notice("Выберите подключённый по USB телефон. Разблокируйте его и разрешите отладку."); return; }
+            var device = usbMigrationDevice;
+            if (device == null) { Notice("На вкладке USB выберите нужный телефон, разрешите отладку и вернитесь на вкладку Wi-Fi."); return; }
+            string connectedSerial = null;
             networkBusy = true; UpdateButtons();
             try
             {
@@ -733,6 +801,7 @@ namespace Morror
                     catch (TimeoutException) { }
                 }
                 if (!connected) throw new InvalidOperationException("Телефон включил порт 5555, но не отвечает. Проверьте общую сеть и изоляцию Wi-Fi. USB пока оставьте подключённым.");
+                connectedSerial = endpoint;
                 Get<TextBox>("ConnectAddress").Text = endpoint;
                 Get<ComboBox>("Devices").SelectedItem = null;
                 SetMode(true);
@@ -741,17 +810,40 @@ namespace Morror
             catch (OperationCanceledException) { }
             catch (Exception error) { Notice(error.Message); }
             finally { networkBusy = false; UpdateButtons(); }
-            await Refresh();
+            await Refresh(connectedSerial);
         }
 
-        async Task Start()
+        Task Start() { return StartMirror(false); }
+        Task Resume() { return StartMirror(true); }
+
+        async Task StartMirror(bool resume)
         {
-            var device = Get<ComboBox>("Devices").SelectedItem as Device;
-            if (device == null || !device.Ready || Running || starting) return;
-            starting = true; stopRequested = false; UpdateButtons(); Badge("●  Запуск…");
+            if (closing || Running || starting || networkBusy || refreshing) return;
+            var device = resume ? interruptedDevice : Get<ComboBox>("Devices").SelectedItem as Device;
+            if (device == null || !device.Ready || !resume && device.Wireless != wifi) return;
+            ShowAndroidSetup(true);
+            starting = true; stopRequested = false; streamStarted = false; UpdateButtons(); Badge("●  Запуск…");
             Process launched = null;
             try
             {
+                if (resume)
+                {
+                    var devices = await Commands.ListDevices(Adb, profileLifetime.Token);
+                    if (closing) return;
+                    var available = devices.FirstOrDefault(d => d.Ready && d.SameConnection(device));
+                    if (available == null)
+                    {
+                        Badge("●  Ожидание");
+                        Notice("Подключите " + device.Model + " снова по " + (device.Wireless ? "Wi-Fi" : "USB") + " и нажмите «Возобновить».");
+                        return;
+                    }
+                    device = available;
+                    SetMode(device.Wireless);
+                    SelectDevices(devices, device.Serial);
+                    ApplyStreamSettings(interruptedSettings);
+                    SaveStreamSettings();
+                    Get<TextBlock>("Notice").Visibility = Visibility.Collapsed;
+                }
                 bool audio = Get<CheckBox>("Audio").IsChecked == true;
                 if (audio)
                 {
@@ -771,7 +863,8 @@ namespace Morror
                 var owned = launched;
                 launched.Exited += (s, e) => { if (!closing && !window.Dispatcher.HasShutdownStarted) window.Dispatcher.BeginInvoke(new Action(() => Ended(owned))); };
                 AddLog("Запуск трансляции: " + device.Label + (fps == 0 ? ", FPS устройства без ограничения Morror." : ", до " + fps + " FPS."));
-                launched.Start(); mirror = launched; activeSerial = device.Serial; activeModel = device.Model;
+                launched.Start(); mirror = launched; activeDevice = device;
+                actualFps = null;
                 launched.BeginOutputReadLine(); launched.BeginErrorReadLine();
                 UpdateButtons();
                 for (int i = 0; i < 60; i++)
@@ -781,7 +874,10 @@ namespace Morror
                     if (launched.MainWindowHandle != IntPtr.Zero)
                     {
                         ApplyPin();
-                        Badge("●  Трансляция"); Get<TextBlock>("SessionHint").Text = device.Model + (fps == 0 ? " · без лимита FPS" : " · до " + fps + " FPS") + " · Alt+F — полный экран · Alt+K — языки клавиатуры";
+                        streamStarted = true;
+                        interruptedDevice = null;
+                        interruptedSettings = null;
+                        Badge("●  Трансляция", true); RenderStreamFps();
                         if (Get<CheckBox>("AutoTray").IsChecked == true) HideToTray();
                         return;
                     }
@@ -789,6 +885,7 @@ namespace Morror
                 }
                 throw new TimeoutException("Окно трансляции не появилось. Проверьте телефон и журнал подключения.");
             }
+            catch (OperationCanceledException) { }
             catch (Exception e)
             {
                 AddLog(e.Message); Notice(e.Message); Stop(); Badge("●  Ошибка запуска");
@@ -802,8 +899,20 @@ namespace Morror
             if (string.IsNullOrEmpty(e.Data) || closing) return;
             window.Dispatcher.BeginInvoke(new Action(() =>
             {
-                if (closing) return;
+                if (closing || sender != mirror) return;
                 AddLog(e.Data);
+                var fps = ScrcpyFps.Match(e.Data.Trim());
+                int measured;
+                if (fps.Success && int.TryParse(fps.Groups[1].Value, out measured))
+                {
+                    actualFps = measured;
+                    RenderStreamFps();
+                }
+                else if (e.Data.Trim() == "INFO: FPS counter stopped")
+                {
+                    actualFps = null;
+                    RenderStreamFps();
+                }
                 if (e.Data.IndexOf("uhid", StringComparison.OrdinalIgnoreCase) >= 0 && e.Data.IndexOf("ERROR", StringComparison.OrdinalIgnoreCase) >= 0)
                     Notice("Телефон не поддерживает UHID. Остановите трансляцию и выберите Настройки → Клавиатура → Совместимость. Для русского текста используйте вставку из буфера.");
                 string pushed = Protocol.FilePushNotice(e.Data);
@@ -821,11 +930,24 @@ namespace Morror
         {
             if (mirror != owned) return;
             int exitCode = owned.ExitCode;
-            mirror = null; activeSerial = null; activeModel = null; owned.Dispose();
+            var device = activeDevice;
+            mirror = null; activeDevice = null; owned.Dispose();
             if (closing) return;
+            actualFps = null;
+            RenderStreamFps();
             Badge("●  Ожидание");
             Get<TextBlock>("SessionHint").Text = "Трансляция завершена. Можно снова подключить телефон.";
-            if (!stopRequested && exitCode != 0) Notice("Трансляция прервана. Проверьте подключение телефона. Причина указана в журнале.");
+            if (!stopRequested && exitCode != 0)
+            {
+                if (streamStarted)
+                {
+                    interruptedDevice = device;
+                    interruptedSettings = CaptureStreamSettings();
+                }
+                Notice(interruptedDevice == null
+                    ? "Не удалось запустить трансляцию. Причина указана в журнале."
+                    : "Трансляция прервана. Подключите телефон снова и нажмите «Возобновить».");
+            }
             AddLog("Трансляция завершена, код " + exitCode + "."); UpdateButtons();
             if (hiddenToTray) RestoreFromTray();
         }
@@ -851,7 +973,10 @@ namespace Morror
             Get<Button>("TransferButton").ToolTip = canTransfer ? "Фото и буфер обмена" : "Фото и буфер обмена · подключите телефон";
             if (tray != null) tray.SetTransferAvailable(canTransfer);
             Get<CheckBox>("ClipboardSync").IsEnabled = idle && !networkBusy && Get<CheckBox>("Control").IsChecked == true;
-            Get<Button>("StartButton").IsEnabled = idle && !networkBusy && !refreshing && device != null && device.Ready;
+            Get<Button>("StartButton").IsEnabled = idle && !networkBusy && !refreshing && device != null && device.Ready && device.Wireless == wifi;
+            var resume = Get<Button>("ResumeButton");
+            resume.Visibility = interruptedDevice != null && !Running ? Visibility.Visible : Visibility.Collapsed;
+            resume.IsEnabled = idle && !networkBusy && !refreshing;
             Get<Button>("StopButton").IsEnabled = Running;
             foreach (string name in new[] { "PairButton", "ConnectButton", "QrButton", "UsbWifiButton" }) Get<Button>(name).IsEnabled = idle && !networkBusy;
             foreach (string name in new[] { "Devices", "Quality", "FrameRate", "StreamPreset", "KeyboardMode", "Audio", "Control", "UsbButton", "WifiButton" }) Get<Control>(name).IsEnabled = idle && !networkBusy;
@@ -861,7 +986,12 @@ namespace Morror
             Get<Button>("DevicePresetButton").IsEnabled = idle && !networkBusy && device != null && device.Ready;
         }
         void Notice(string value) { if (!closing) { Get<TextBlock>("Notice").Text = value; Get<TextBlock>("Notice").Visibility = Visibility.Visible; } }
-        void Badge(string value) { if (!closing) Get<TextBlock>("StatusBadge").Text = value; }
+        void Badge(string value, bool ready = false)
+        {
+            if (closing) return;
+            Get<TextBlock>("StatusBadge").Text = value;
+            Get<Border>("StatusPill").Tag = ready ? "Ready" : null;
+        }
         void AddLog(string line)
         {
             if (closing) return;

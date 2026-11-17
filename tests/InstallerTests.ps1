@@ -76,12 +76,16 @@ try {
         Assert-Installer $complete ($caseName + ': all application, QR and mirroring files are installed intact')
         $startLink = Join-Path $destination 'TestStartMenu\Morror.lnk'
         $desktopLink = Join-Path $destination 'TestDesktop\Morror.lnk'
+        $sendLink = Join-Path $destination 'TestSendTo\Morror — на телефон.lnk'
         Assert-Installer (Test-Path -LiteralPath $startLink) ($caseName + ': Start menu shortcut is created')
         Assert-Installer ((Test-Path -LiteralPath $desktopLink) -eq $withDesktop) ($caseName + ': desktop shortcut respects the checkbox')
         $shortcut = $shell.CreateShortcut($startLink)
         $installedExe = Join-Path $destination 'Morror.exe'
         $installedIcon = Join-Path $destination 'morror.ico'
         Assert-Installer ($shortcut.TargetPath -eq $installedExe -and $shortcut.WorkingDirectory -eq $destination -and $shortcut.IconLocation -eq "$installedIcon,0") ($caseName + ': shortcut target, working folder and icon are correct')
+        Assert-Installer (Test-Path -LiteralPath $sendLink) ($caseName + ': Explorer Send To shortcut is created')
+        $sendShortcut = $shell.CreateShortcut($sendLink)
+        Assert-Installer ($sendShortcut.TargetPath -eq $installedExe -and $sendShortcut.Arguments -eq '--send-files') ($caseName + ': Explorer shortcut opens the file sender')
         if ($withDesktop) {
             $desktopShortcut = $shell.CreateShortcut($desktopLink)
             Assert-Installer ($desktopShortcut.TargetPath -eq $installedExe -and $desktopShortcut.IconLocation -eq "$installedIcon,0") 'Desktop shortcut launches the installed application with the Morror icon'
@@ -96,7 +100,7 @@ try {
         $uninstaller = Join-Path $destination 'unins000.exe'
         $uninstallLog = Join-Path $testRoot ($caseName + '-uninstall.log')
         $exitCode = Run-Installer $uninstaller @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/LOG="' + $uninstallLog + '"'))
-        Assert-Installer ($exitCode -eq 0 -and !(Test-Path -LiteralPath $installedExe) -and !(Test-Path -LiteralPath $startLink) -and !(Test-Path -LiteralPath $desktopLink)) ($caseName + ': uninstaller removes the managed app and shortcuts')
+        Assert-Installer ($exitCode -eq 0 -and !(Test-Path -LiteralPath $installedExe) -and !(Test-Path -LiteralPath $startLink) -and !(Test-Path -LiteralPath $desktopLink) -and !(Test-Path -LiteralPath $sendLink)) ($caseName + ': uninstaller removes the managed app and shortcuts')
         Assert-Installer (Test-Path -LiteralPath $sentinel) ($caseName + ': uninstaller preserves unrelated user files')
     }
 } finally { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell) }
@@ -107,6 +111,6 @@ $sentinel = Join-Path $portable 'user-created-file.txt'
 Set-Content -LiteralPath $sentinel -Value 'This file must survive an update.'
 $exitCode = Run-Installer $testSetup @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/DIR="' + $portable + '"'),'/MORRORPORTABLEUPDATE')
 Assert-Installer ($exitCode -eq 0 -and (Test-Path -LiteralPath (Join-Path $portable 'runtime\adb.exe'))) 'Portable update installs files in the existing folder'
-Assert-Installer (!(Test-Path -LiteralPath (Join-Path $portable 'unins000.exe')) -and !(Test-Path -LiteralPath (Join-Path $portable 'TestStartMenu'))) 'Portable update keeps the copy portable'
+Assert-Installer (!(Test-Path -LiteralPath (Join-Path $portable 'unins000.exe')) -and !(Test-Path -LiteralPath (Join-Path $portable 'TestStartMenu')) -and !(Test-Path -LiteralPath (Join-Path $portable 'TestSendTo'))) 'Portable update keeps the copy portable'
 Assert-Installer (Test-Path -LiteralPath $sentinel) 'Portable update preserves unrelated user files'
 Write-Host ($script:checkCount.ToString() + ' installer checks passed. Test files: ' + $testRoot)

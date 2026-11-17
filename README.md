@@ -2,11 +2,11 @@
 
 **Mirror Android or iPhone on Windows, or use Android as a native Windows second monitor over USB or Wi-Fi.**
 
-Morror combines a Russian-language WPF desktop interface, the official [scrcpy 5.0.1](https://github.com/Genymobile/scrcpy/tree/v5.0.1) runtime for Android-to-PC mirroring, and a native Android receiver for PC-to-Android display extension.
+Morror combines a Russian-language WPF desktop interface, [scrcpy 5.0.1](https://github.com/Genymobile/scrcpy/tree/v5.0.1) for Android-to-PC mirroring, and a native Android receiver for PC-to-Android display extension. The Windows scrcpy client includes Morror's fix for live video updates during window moves and resizes.
 
-**Latest release: 0.9.4.** Both Windows packages include Android and iPhone mirroring, the native second-monitor APK, the video encoder and the signed virtual display driver.
+**Latest release: 0.9.5.** Both Windows packages include Android and iPhone mirroring, the native second-monitor APK, the video encoder and the signed virtual display driver.
 
-[Published releases](https://github.com/Lisichkinoff/Morror/releases) · [Download 0.9.4 installer](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.4/Morror-0.9.4-Setup-win64.exe) · [Download 0.9.4 portable ZIP](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.4/Morror-0.9.4-win64.zip) · [Second-monitor guide](docs/second-screen.md)
+[Published releases](https://github.com/Lisichkinoff/Morror/releases) · [Download 0.9.5 installer](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.5/Morror-0.9.5-Setup-win64.exe) · [Download 0.9.5 portable ZIP](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.5/Morror-0.9.5-win64.zip) · [Second-monitor guide](docs/second-screen.md)
 
 ## Features
 
@@ -19,11 +19,11 @@ Morror combines a Russian-language WPF desktop interface, the official [scrcpy 5
 | Gallery, thumbnails, file transfer and clipboard actions | Multitouch input with a filter for touch-generated mouse movement |
 | Tray controls, live pinning and connection logs | System audio through WASAPI loopback and Android AudioTrack |
 
-The desktop UI currently uses Russian labels. Mirroring, file transfer and second-monitor controls are available from the sidebar.
+The desktop UI uses Russian labels. On the home page, choose Android mirroring, iPhone mirroring, or an Android second monitor. File transfer is available from the sidebar.
 
 ## Screenshots
 
-Screenshots captured with Morror 0.9.1; the current release retains the same interface layout. Desktop screenshots use a simulated device and generated images, without personal files or clipboard contents.
+These screenshots are from Morror 0.9.1. Desktop screenshots use a simulated device and generated images, without personal files or clipboard contents.
 
 ### Connection dashboard
 
@@ -58,7 +58,7 @@ A real Pixel 8 displaying a **synthetic test pattern at 2400 × 1080**, with the
 
 The Windows installer runs per user. Windows asks for administrator approval to install the virtual display component, enable it for a second-screen session, or register a previously unsupported monitor resolution. Root access on Android is not required.
 
-Run `dist/Morror-0.9.4/Morror.exe`, install `dist/Morror-0.9.4-Setup-win64.exe`, or extract the entire `dist/Morror-0.9.4-win64.zip`. Keep the runtime, QRCoder library and license files together.
+Run `dist/Morror-0.9.5/Morror.exe`, install `dist/Morror-0.9.5-Setup-win64.exe`, or extract the entire `dist/Morror-0.9.5-win64.zip`. Keep the runtime, QRCoder library and license files together.
 
 Starting with 0.9.3, Morror checks GitHub Releases in the background on startup. **Скачать** downloads and verifies the installer, applies the update in the current folder, and reopens Morror. **Позже** dismisses the notice until the next launch. To upgrade from 0.9.2 or earlier, exit the running app from its tray menu and install the current version manually once.
 
@@ -102,11 +102,13 @@ Android-to-PC audio over Wi-Fi uses a 120 ms target buffer to absorb brief packe
 | Lower load | 720 px | 30 FPS | 4 Mbps |
 | Sharp | 1920 px | 60 FPS | 16 Mbps |
 
-Settings also expose 2K, QHD, 4K, original resolution, higher FPS limits and an uncapped mode. Actual frame rate depends on the device, encoder and connection. Higher limits increase load; a configured limit is not a measured performance claim. Morror saves mirroring preferences as you change them and restores them at startup. Video quality applies on the next mirroring session.
+Settings also expose 2K, QHD, 4K, original resolution, higher FPS limits and an uncapped mode. While mirroring, Morror shows measured FPS alongside the configured limit. Actual frame rate depends on the device, encoder and connection. Higher limits increase load. Morror saves mirroring preferences as you change them and restores them at startup. Video quality applies on the next mirroring session.
 
 The default `--keyboard=uhid` mode supports physical-keyboard layouts, including Russian and English. During mirroring, press **Alt+K** to configure Android's physical keyboard. Language switching is usually **Ctrl+Space**; Android layouts are independent of Windows layouts. A compatible SDK keyboard mode is available for devices that cannot use UHID.
 
 Morror can hide to the tray after the mirror opens. Double-click its tray icon to restore settings; stopping or losing the stream restores them automatically. Pinning the mirror can be changed during playback. If phone-screen power saving is enabled, **Alt+Shift+O** turns the Android screen back on.
+
+After an unexpected interruption, reconnect the phone using the same connection and select **Возобновить** (Resume). Morror starts the Android stream with the previous settings. The second-monitor window offers the same action after it detaches the interrupted display.
 
 ## Use Android as a second monitor
 
@@ -114,7 +116,7 @@ Morror can hide to the tray after the mirror opens. Double-click its tray icon t
 2. Install the included display component once and approve the Windows prompt.
 3. Connect by USB or QR-paired Wi-Fi and select the authorized device.
 4. Keep **Auto · device-native resolution** selected and enable the monitor.
-5. Morror installs and starts its native Android receiver. Move Windows applications onto the new extended display.
+5. Morror installs the native Android receiver if it is missing or older than the bundled APK, then starts it. When the first frame arrives, you can move Windows applications onto the extended display.
 
 No desktop browser, screen-sharing picker or Android WebView is used. The same bounded, authenticated TCP protocol runs through a session-owned ADB reverse tunnel for both USB and Wi-Fi.
 
@@ -140,7 +142,9 @@ See the [full second-monitor guide](docs/second-screen.md) for lifecycle details
 
 ## Files and clipboard
 
-The gallery lists shared Android storage with paginated thumbnails. It can download originals, copy supported images or files into the Windows clipboard, upload selected files or clipboard images, and open a transferred file after Android media indexing succeeds. Pictures go to `Pictures/Morror`; other files go to `Download/Morror`. Source files are not deleted.
+The Windows installer adds **Morror — на телефон** to File Explorer's **Send to** menu. Select files, open the context menu and choose that entry. On Windows 11, **Show more options** opens the classic context menu. In Morror, confirm the Android recipient and select **Отправить** (Send). The sender supports authorized USB and Wi-Fi connections.
+
+The gallery lists shared Android storage with paginated thumbnails. Use Ctrl or Shift to select files across pages, then save them to a folder on Windows. The gallery shows progress and keeps existing files when names collide. It can also copy a file into the Windows clipboard, upload selected files or clipboard images, and open a transferred file after Android media indexing succeeds. Pictures sent to Android go to `Pictures/Morror`, and other files go to `Download/Morror`.
 
 Text clipboard synchronization is available during mirroring. Android image/URI clipboard data is not synchronized automatically, and uploading a picture does not paste it into an Android message. Private application storage and cloud-only files are outside the gallery's scope. The system clipboard is read for upload only after a user action.
 
@@ -176,7 +180,7 @@ The USB display hotfix also verifies a real Pixel 8 over USB: Windows CCD activa
 
 ## Credits and licenses
 
-Android-to-PC capture and control are provided by **scrcpy**, developed by **Genymobile** and **[Romain Vimont (rom1v)](https://github.com/rom1v)**. Morror is an independent project, not an official Genymobile or scrcpy product. The official scrcpy binaries are distributed without modification.
+Android-to-PC capture and control are provided by **scrcpy**, developed by **Genymobile** and **[Romain Vimont (rom1v)](https://github.com/rom1v)**. Morror builds the Windows client with its [live resize patch](scripts/scrcpy-windows-live-resize.patch) and bundles the server and libraries from the pinned release.
 
 ```text
 Copyright (C) 2018 Genymobile

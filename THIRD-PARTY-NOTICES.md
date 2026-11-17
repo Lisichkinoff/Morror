@@ -1,6 +1,6 @@
 # Компоненты сторонних разработчиков
 
-Morror использует официальный бинарный пакет **scrcpy 5.0.1** от Genymobile и поставляемые с ним ADB, SDL, FFmpeg и libusb. При сборке Morror заменяет ресурсы значка в своей копии scrcpy.exe и файл scrcpy.png. Лицензия scrcpy находится в `runtime/LICENSE.txt` (Apache License 2.0).
+Morror использует **scrcpy 5.0.1** от Genymobile. Windows-клиент собран из исходников этой версии с [исправлением обновления кадров при перемещении и изменении размеров окна](scripts/scrcpy-windows-live-resize.patch) и значком Morror. Сервер scrcpy, ADB, SDL, FFmpeg и libusb взяты из официального бинарного пакета. Лицензия scrcpy находится в `runtime/LICENSE.txt` (Apache License 2.0).
 
 Morror является отдельной Windows-оболочкой для scrcpy. Захват экрана, звука и управление Android выполняет scrcpy; интерфейс и дополнительные функции Morror разработаны в этом репозитории. Morror не является официальным продуктом Genymobile или авторов scrcpy.
 

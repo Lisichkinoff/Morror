@@ -24,6 +24,7 @@ namespace Morror
         NativeMonitorServer server;
         ScreenTouchInjection injection;
         Device activeDevice;
+        MonitorSession activeSettings, interruptedSession;
         bool busy,allowClose;
         int reversePort;
         string sessionDisplay;
@@ -37,6 +38,12 @@ namespace Morror
         EventWaitHandle apkFirewallStop;
         string MonitorApkPath { get { return Path.Combine(runtime, "MorrorMonitor.apk"); } }
         DateTime clientDeadline;
+        sealed class MonitorSession
+        {
+            internal Device Device;
+            internal int Quality, FrameRate;
+            internal bool Touch, Audio;
+        }
         T Get<T>(string name) where T:class{return window.FindName(name) as T;}
         void Status(string text){Get<TextBlock>("MonitorStatus").Text=text;}
         public SecondScreenDialog(Window owner,string adb,Device device)
@@ -46,6 +53,7 @@ namespace Morror
             window.Resources=owner.Resources;window.Owner=owner;window.Icon=owner.Icon;
             var area=SystemParameters.WorkArea;window.Width=Math.Min(window.Width,area.Width);window.Height=Math.Min(window.Height,area.Height);window.MinWidth=Math.Min(window.MinWidth,area.Width);window.MinHeight=Math.Min(window.MinHeight,area.Height);
             Get<Button>("MonitorStart").Click+=async(s,e)=>await Start();
+            Get<Button>("MonitorResume").Click+=async(s,e)=>await StartMonitor(true);
             Get<Button>("MonitorStop").Click+=async(s,e)=>await Stop();
             Get<Button>("MonitorClose").Click+=(s,e)=>window.Close();Get<Button>("ScreenTitleClose").Click+=(s,e)=>window.Close();
             Get<Button>("MonitorRefresh").Click+=async(s,e)=>await Refresh();
@@ -277,6 +285,9 @@ namespace Morror
             bool edit=!busy&&!installingApk&&server==null&&sessionDisplay==null&&!displayActivated;
             foreach(string name in new[]{"MonitorTransport","MonitorDevices","MonitorRefresh","MonitorQr","MonitorInstallDriver","MonitorQuality","MonitorFps","MonitorTouch","MonitorAudio","MonitorStart"})Get<UIElement>(name).IsEnabled=edit;
             Get<Button>("MonitorStop").IsEnabled=!busy&&(server!=null||sessionDisplay!=null||displayActivated);
+            var resume = Get<Button>("MonitorResume");
+            resume.Visibility = interruptedSession != null && server == null ? Visibility.Visible : Visibility.Collapsed;
+            resume.IsEnabled = edit;
             Get<Button>("MonitorHideDriver").IsEnabled = !busy && server == null && driverWorker == null;
             Get<Button>("MonitorApkInstall").IsEnabled = !installingApk && !busy;
         }
@@ -286,8 +297,8 @@ namespace Morror
             try
             {
                 var selected=Get<ComboBox>("MonitorDevices").SelectedItem as Device;
-                var result=await Commands.Run(adb,8000,"devices","-l");
-                var all=Protocol.ParseDevices(result.Output).Where(d=>d.Ready).ToArray();bool wifi=Get<ComboBox>("MonitorTransport").SelectedIndex==1;
+                var devices = await Commands.ListDevices(adb, CancellationToken.None);
+                var all=devices.Where(d=>d.Ready).ToArray();bool wifi=Get<ComboBox>("MonitorTransport").SelectedIndex==1;
                 Get<ComboBox>("MonitorDevices").ItemsSource=all;
                 string serial=preferred??(selected==null?(initialDevice==null?null:initialDevice.Serial):selected.Serial);
                 Get<ComboBox>("MonitorDevices").SelectedItem=all.FirstOrDefault(d=>d.Serial==serial&&d.Wireless==wifi)??all.FirstOrDefault(d=>d.Wireless==wifi);
@@ -395,26 +406,60 @@ namespace Morror
                 driverStop = null;
             }
         }
-        async Task Start()
+        Task Start() { return StartMonitor(false); }
+
+        async Task StartMonitor(bool resume)
         {
-            if(busy||server!=null)return;busy=true;Buttons();Exception failure=null;
+            if (busy || installingApk || server != null || sessionDisplay != null || displayActivated || (resume && interruptedSession == null)) return;
+            busy = true; Buttons();
+            Exception failure = null;
             try
             {
+                if (resume)
+                {
+                    var previous = interruptedSession;
+                    Status("Ищем " + previous.Device.Model + "…");
+                    var devices = await Commands.ListDevices(adb, CancellationToken.None);
+                    var available = devices.FirstOrDefault(d => d.Ready && d.SameConnection(previous.Device));
+                    if (available == null)
+                    {
+                        Status("Подключите " + previous.Device.Model + " снова по " + (previous.Device.Wireless ? "Wi-Fi" : "USB") + " и нажмите «Возобновить».");
+                        busy = false; Buttons();
+                        return;
+                    }
+                    Get<ComboBox>("MonitorTransport").SelectedIndex = available.Wireless ? 1 : 0;
+                    var selector = Get<ComboBox>("MonitorDevices");
+                    selector.ItemsSource = devices.Where(d => d.Ready).ToList();
+                    selector.SelectedItem = available;
+                    Get<ComboBox>("MonitorQuality").SelectedIndex = previous.Quality;
+                    Get<ComboBox>("MonitorFps").SelectedIndex = previous.FrameRate;
+                    Get<CheckBox>("MonitorTouch").IsChecked = previous.Touch;
+                    Get<CheckBox>("MonitorAudio").IsChecked = previous.Audio;
+                }
                 activeDevice=Get<ComboBox>("MonitorDevices").SelectedItem as Device;
                 if(activeDevice==null)throw new IOException("Подключите телефон по USB или QR-коду и выберите его в списке.");
                 bool wifi=Get<ComboBox>("MonitorTransport").SelectedIndex==1;
                 if(activeDevice.Wireless!=wifi)throw new IOException("Выберите телефон с соответствующим подключением USB или Wi-Fi.");
+                var settings = new MonitorSession
+                {
+                    Device = activeDevice,
+                    Quality = Get<ComboBox>("MonitorQuality").SelectedIndex,
+                    FrameRate = Get<ComboBox>("MonitorFps").SelectedIndex,
+                    Touch = Get<CheckBox>("MonitorTouch").IsChecked == true,
+                    Audio = Get<CheckBox>("MonitorAudio").IsChecked == true
+                };
                 string apk=MonitorApkPath,ffmpeg=Path.Combine(runtime,"ffmpeg.exe");
                 if(!File.Exists(apk)||!File.Exists(ffmpeg))throw new IOException("В сборке нет нативного Android-клиента или кодировщика. Распакуйте всю новую сборку Morror.");
                 if(!VirtualMonitorDriver.Installed)throw new IOException("Сначала нажмите «Установить компонент монитора». Браузер и ручная трансляция экрана не используются.");
                 Status("Определяем размер экрана телефона…");
                 var info=await DeviceCapabilities.Read(adb,activeDevice.Serial,CancellationToken.None);
-                var resolution=MonitorResolution.ForDevice(info.Width,info.Height,Get<ComboBox>("MonitorQuality").SelectedIndex);
-                int fps=Get<ComboBox>("MonitorFps").SelectedIndex==0?30:60;
+                var resolution=MonitorResolution.ForDevice(info.Width,info.Height,settings.Quality);
+                int fps=settings.FrameRate==0?30:60;
                 if(info.ApiLevel>0&&info.ApiLevel<26)throw new IOException("Morror Монитор требует Android 8.0 или новее. На устройстве Android "+info.AndroidVersion+".");
-                Status("Устанавливаем Morror Монитор на Android. Разблокируйте устройство и подтвердите установку, если появится запрос…");
-                await AndroidMonitorClient.Install(adb,activeDevice.Serial,apk);
-                Status("Подтвердите включение виртуального монитора в запросе Windows.");
+                Status("Проверяем версию Morror Монитор на телефоне…");
+                await AndroidMonitorClient.EnsureInstalled(adb, activeDevice.Serial, apk, () =>
+                    Status("Устанавливаем Morror Монитор. Разблокируйте телефон и подтвердите установку, если появится запрос…"));
+                Status("Подготавливаем виртуальный монитор. Подтвердите запрос Windows.");
                 await EnableSessionDriver();
                 Status("Настраиваем виртуальный монитор Windows: "+resolution.Width+" × "+resolution.Height+"…");
                 displayActivated=true;
@@ -437,8 +482,8 @@ namespace Morror
                 }
                 Status("Проверяем H.264-кодировщик…");string codec=await NativeMonitorEncoder.Select(ffmpeg,CancellationToken.None,resolution.Width,resolution.Height,fps);
                 var capture=await NativeMonitorEncoder.SelectCapture(ffmpeg,codec,screen,resolution.Width,resolution.Height,fps);
-                bool touch=Get<CheckBox>("MonitorTouch").IsChecked==true;if(touch)injection=new ScreenTouchInjection(screen.Bounds);
-                server=new NativeMonitorServer(ffmpeg,codec,screen,resolution.Width,resolution.Height,fps,Get<CheckBox>("MonitorAudio").IsChecked==true,async frame=>
+                if(settings.Touch)injection=new ScreenTouchInjection(screen.Bounds);
+                server=new NativeMonitorServer(ffmpeg,codec,screen,resolution.Width,resolution.Height,fps,settings.Audio,async frame=>
                 {
                     if(injection!=null)await window.Dispatcher.InvokeAsync(()=>
                     {
@@ -451,11 +496,19 @@ namespace Morror
                 if(reverse.ExitCode!=0)throw new IOException("Не удалось создать туннель монитора. "+reverse.Combined);reversePort=server.Port;
                 var launch=await Commands.Run(adb,10000,"-s",activeDevice.Serial,"shell","am","start","-n","ru.morror.monitor/.MonitorActivity","--ei","port",server.Port.ToString(),"--es","token",server.Token);
                 if(launch.ExitCode!=0||launch.Combined.Contains("Error"))throw new IOException("Не удалось открыть Morror Монитор на телефоне.");
-                clientDeadline=DateTime.UtcNow.AddSeconds(20);timer.Start();Status("Монитор включён. Перетащите нужное окно за край основного экрана Windows.");
+                activeSettings = settings;
+                interruptedSession = null;
+                clientDeadline=DateTime.UtcNow.AddSeconds(20);timer.Start();Status(server.Status);
             }
-            catch(Exception e){failure=e;}
-            if(failure!=null){try{await Cleanup();}catch(Exception cleanup){failure=new IOException(failure.Message+"\n"+cleanup.Message);}Status(failure.Message);}
-            busy=false;Buttons();
+            catch (Exception error) { failure = error; }
+            if (failure != null)
+            {
+                string message = failure.Message;
+                try { await Cleanup(); }
+                catch (Exception cleanup) { message += "\n" + cleanup.Message; }
+                Status(message);
+            }
+            busy = false; Buttons();
             if (server != null) await EndOnDisconnect(server);
         }
         async Task EndOnDisconnect(NativeMonitorServer session)
@@ -467,10 +520,24 @@ namespace Morror
         {
             if(server==null||busy)return;
             bool ended=server.Completion.IsCompleted;
-            if(!ended&&(server.HasClient||DateTime.UtcNow<clientDeadline)){Status(server.Status);return;}
+            if(!ended&&(server.HasClient||DateTime.UtcNow<clientDeadline))
+            {
+                string status = server.Status;
+                if (server.SustainedLowFps)
+                    status += activeDevice != null && activeDevice.Wireless
+                        ? "\nЧастота кадров снизилась. Попробуйте USB или меньшее разрешение при следующем запуске."
+                        : "\nЧастота кадров снизилась. Попробуйте меньшее разрешение при следующем запуске.";
+                Status(status);
+                return;
+            }
             string message=ended?"Устройство отключено. "+server.Status:"Android-клиент не подключился за 20 секунд. Разблокируйте устройство и повторите запуск.";
             busy=true;Buttons();
-            try{await Cleanup();Status(message+" Виртуальный монитор отключён.");}
+            interruptedSession = activeSettings;
+            try
+            {
+                await Cleanup();
+                Status(message + " Виртуальный монитор отключён." + (interruptedSession == null ? "" : " Подключите телефон снова и нажмите «Возобновить»."));
+            }
             catch(Exception error){Status(message+"\n"+error.Message);}
             finally{busy=false;Buttons();}
         }
@@ -494,6 +561,7 @@ namespace Morror
         async Task Cleanup()
         {
             timer.Stop();Exception failure=null;
+            activeSettings = null;
             var ending=server;server=null;
             try{if(ending!=null)await ending.Stop();}catch(Exception error){failure=error;}
             try{if(injection!=null){injection.Cancel();await Task.Delay(80);injection.Dispose();}}catch(Exception error){failure=error;}finally{injection=null;}
@@ -529,6 +597,6 @@ namespace Morror
             if(reversePort!=0&&activeDevice!=null){int port=reversePort;reversePort=0;try{await Commands.Run(adb,5000,"-s",activeDevice.Serial,"reverse","--remove","tcp:"+port);}catch(Exception){}}
             if(failure!=null)throw failure;
         }
-        async Task Stop(){if(busy)return;busy=true;Buttons();try{await Cleanup();Status("Монитор остановлен. Туннель и сенсорное управление отключены.");}catch(Exception error){Status(error.Message);}finally{busy=false;Buttons();}}
+        async Task Stop(){if(busy)return;if(server!=null)interruptedSession=null;busy=true;Buttons();try{await Cleanup();Status("Монитор остановлен. Туннель и сенсорное управление отключены.");}catch(Exception error){Status(error.Message);}finally{busy=false;Buttons();}}
     }
 }

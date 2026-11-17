@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Markup;
+using System.Windows.Automation;
 using System.Windows.Threading;
 
 namespace Morror
@@ -23,7 +24,18 @@ namespace Morror
         DateTime started;
         T Get<T>(string name) where T : FrameworkElement { return (T)window.FindName(name); }
         bool WiFi { get { return Get<ComboBox>("Transport").SelectedIndex == 1; } }
-        void Status(string message) { Get<TextBlock>("Status").Text = message; }
+        void Status(string message)
+        {
+            var status = Get<TextBlock>("Status");
+            status.Text = message;
+            status.Visibility = string.IsNullOrEmpty(message) ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        void UpdateNetworkStatus()
+        {
+            var network = Get<TextBlock>("NetworkStatus");
+            network.Visibility = WiFi && !string.IsNullOrEmpty(network.Text) ? Visibility.Visible : Visibility.Collapsed;
+        }
 
         internal IPhoneMirrorDialog(string directory) : this(new IPhoneMirrorEngine(directory)) { }
 
@@ -43,7 +55,12 @@ namespace Morror
             using (var icon = Assembly.GetExecutingAssembly().GetManifestResourceStream("Morror.ico"))
                 window.Icon = System.Windows.Media.Imaging.BitmapFrame.Create(icon,
                     System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
-            window.Height = Math.Min(window.Height, SystemParameters.WorkArea.Height);
+            var workArea = SystemParameters.WorkArea;
+            window.MinWidth = Math.Min(window.MinWidth, workArea.Width);
+            window.MinHeight = Math.Min(window.MinHeight, workArea.Height);
+            window.Width = Math.Min(window.Width, workArea.Width);
+            window.Height = Math.Min(window.Height, workArea.Height);
+            WindowFrame.Bind(window, Get<Border>("WindowFrame"), Get<Button>("MinimizeButton"), Get<Button>("MaximizeButton"), Get<Button>("CloseButton"));
 
             Get<ComboBox>("Transport").SelectionChanged += async (s, e) =>
             {
@@ -83,11 +100,13 @@ namespace Morror
             Get<FrameworkElement>("DeviceRow").Visibility = WiFi ? Visibility.Collapsed : Visibility.Visible;
             Get<Button>("Driver").Visibility = WiFi ? Visibility.Collapsed : Visibility.Visible;
             Get<Button>("Network").Visibility = WiFi ? Visibility.Visible : Visibility.Collapsed;
-            Get<TextBlock>("NetworkStatus").Visibility = WiFi ? Visibility.Visible : Visibility.Collapsed;
+            UpdateNetworkStatus();
             Get<TextBlock>("Instructions").Text = WiFi
-                ? "Подключите ПК и iPhone к одной сети. Запустите AirPlay. На iPhone откройте Пункт управления → «Повтор экрана» (два прямоугольника) → Morror. Настройки «AirPlay и Непрерывность» не запускают трансляцию."
+                ? "Подключите ПК и iPhone к одной сети. Запустите AirPlay и на iPhone выберите Пункт управления → «Повтор экрана» → Morror."
                 : "Подключите iPhone кабелем с передачей данных, разблокируйте его и нажмите «Доверять», если появится запрос.";
-            Get<Button>("Start").Content = WiFi ? "Запустить AirPlay" : "Начать трансляцию";
+            string action = WiFi ? "Запустить AirPlay" : "Начать трансляцию";
+            Get<TextBlock>("StartLabel").Text = action;
+            AutomationProperties.SetName(Get<Button>("Start"), action);
             Status(WiFi ? "" : "Выберите подключённый iPhone.");
             UpdateButtons();
         }
@@ -169,6 +188,7 @@ namespace Morror
                     Status("Запускаем приёмник AirPlay…");
                     string network = await Task.Run(() => IPhoneNetwork.Describe());
                     Get<TextBlock>("NetworkStatus").Text = network;
+                    UpdateNetworkStatus();
                     await Task.Run(() => { engine.Initialize(); engine.Listen(); });
                     listening = true;
                     started = DateTime.UtcNow;

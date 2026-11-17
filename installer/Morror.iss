@@ -13,7 +13,7 @@ SetupMutex=Local\Morror.Installer.Test.Setup
 #else
 AppId={{DF58DC88-4346-493F-BCCE-9BCA671D2387}
 OutputBaseFilename=Morror-{#MyAppVersion}-Setup-win64
-AppMutex=Local\Morror.Desktop,Local\Morror.iPhone
+AppMutex=Local\Morror.Desktop,Local\Morror.iPhone,Local\Morror.SendFiles
 SetupMutex=Local\Morror.Setup
 #endif
 AppName=Morror
@@ -59,16 +59,18 @@ Name: "desktopicon"; Description: "Создать ярлык на рабочем
 #ifdef TestBuild
 Name: "{app}\TestStartMenu\Morror"; Filename: "{app}\Morror.exe"; WorkingDir: "{app}"; IconFilename: "{app}\morror.ico"; Check: not IsPortableUpdate
 Name: "{app}\TestDesktop\Morror"; Filename: "{app}\Morror.exe"; WorkingDir: "{app}"; IconFilename: "{app}\morror.ico"; Tasks: desktopicon; Check: not IsPortableUpdate
+Name: "{app}\TestSendTo\Morror — на телефон"; Filename: "{app}\Morror.exe"; Parameters: "--send-files"; WorkingDir: "{app}"; IconFilename: "{app}\morror.ico"; Check: not IsPortableUpdate
 #else
 Name: "{autoprograms}\Morror\Morror"; Filename: "{app}\Morror.exe"; WorkingDir: "{app}"; IconFilename: "{app}\morror.ico"; Comment: "Экран и звук Android на компьютере"; Check: not IsPortableUpdate
 Name: "{autodesktop}\Morror"; Filename: "{app}\Morror.exe"; WorkingDir: "{app}"; IconFilename: "{app}\morror.ico"; Comment: "Экран и звук Android на компьютере"; Tasks: desktopicon; Check: not IsPortableUpdate
+Name: "{usersendto}\Morror — на телефон"; Filename: "{app}\Morror.exe"; Parameters: "--send-files"; WorkingDir: "{app}"; IconFilename: "{app}\morror.ico"; Check: not IsPortableUpdate
 #endif
 
 [Run]
 Filename: "{app}\Morror.exe"; Description: "Запустить Morror"; Flags: nowait postinstall skipifsilent
 
 [Messages]
-AppRunningError=Программа Morror уже запущена.%n%nОткройте значок Morror рядом с часами Windows и выберите «Выйти из Morror», затем повторите установку или удаление.
+AppRunningError=Программа Morror уже запущена.%n%nЗакройте окно отправки файлов, если оно открыто. В меню значка Morror рядом с часами выберите «Выйти из Morror», затем повторите установку или удаление.
 
 [Code]
 function IsPortableUpdate(): Boolean;

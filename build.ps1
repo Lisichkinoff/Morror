@@ -12,8 +12,8 @@ $qrLibrary = Join-Path $projectRoot 'tools\qrcoder-1.8.1\lib\net40\QRCoder.dll'
 if (!(Test-Path -LiteralPath $qrLibrary)) { throw 'Сначала выполните scripts\get-qr-dependencies.ps1.' }
 $references += '/reference:' + $qrLibrary
 $sources = @('Core.cs','App.cs','TrayController.cs','WirelessPairing.cs','QrPairingDialog.cs','MirrorWindow.cs','DeviceCapabilities.cs','FileTransfer.cs','ClipboardTransfer.cs','TransferDialog.cs','SecondScreenProtocol.cs','MonitorResolution.cs','ScreenTouchInjection.cs','NativeMonitor.cs','DisplayTopology.cs','VirtualMonitorDriver.cs','WasapiMonitorAudio.cs','AndroidMonitorClient.cs','SecondScreenDialog.cs','AssemblyInfo.cs') | ForEach-Object { Join-Path $projectRoot ('src\' + $_) }
-$sources += 'AppUpdate.cs','MonitorCapture.cs','StreamSettings.cs','MonitorApkDownload.cs','MonitorApkFirewall.cs' | ForEach-Object { Join-Path $projectRoot ('src\' + $_) }
-$resources = @('MainWindow.xaml','QrWindow.xaml','TransferWindow.xaml','SecondScreenWindow.xaml') | ForEach-Object { '/resource:' + (Join-Path $projectRoot ('src\' + $_)) + ',' + $_ }
+$sources += 'AppUpdate.cs','MonitorCapture.cs','StreamSettings.cs','MonitorApkDownload.cs','MonitorApkFirewall.cs','SendFilesDialog.cs','WindowFrame.cs' | ForEach-Object { Join-Path $projectRoot ('src\' + $_) }
+$resources = @('MainWindow.xaml','QrWindow.xaml','TransferWindow.xaml','SecondScreenWindow.xaml','SendFilesWindow.xaml') | ForEach-Object { '/resource:' + (Join-Path $projectRoot ('src\' + $_)) + ',' + $_ }
 $icon = Join-Path $projectRoot 'assets\morror.ico'
 $mirrorIcon = Join-Path $projectRoot 'assets\morror.png'
 if (!(Test-Path -LiteralPath $icon) -or !(Test-Path -LiteralPath $mirrorIcon)) { & (Join-Path $projectRoot 'scripts\build-icon.ps1') }
@@ -23,6 +23,7 @@ $resources += $iconResource
 if ($LASTEXITCODE -ne 0) { throw 'Ошибка компиляции Morror.' }
 $engine = Join-Path $projectRoot 'tools\scrcpy-win64-v5.0.1'
 if (!(Test-Path -LiteralPath (Join-Path $engine 'scrcpy.exe'))) { throw 'Сначала выполните scripts\get-scrcpy.ps1.' }
+$liveEngine = & (Join-Path $projectRoot 'scripts\build-scrcpy-live.ps1')
 $runtime = Join-Path $output 'runtime'
 New-Item -ItemType Directory -Force -Path $runtime | Out-Null
 $nativeTools = Join-Path $projectRoot 'tools\native-monitor'
@@ -31,7 +32,7 @@ if (!(Test-Path -LiteralPath (Join-Path $iphoneSource 'iPhoneMirror.Core.dll')))
 $iphoneRuntime = Join-Path $runtime 'iphone'
 New-Item -ItemType Directory -Path $iphoneRuntime -Force | Out-Null
 Copy-Item -Path (Join-Path $iphoneSource '*') -Destination $iphoneRuntime -Recurse -Force
-$iphoneSources = @('IPhoneApp.cs','IPhoneMirrorDialog.cs','IPhoneMirrorEngine.cs','IPhoneNetwork.cs','AssemblyInfo.cs') | ForEach-Object { Join-Path $projectRoot ('src\' + $_) }
+$iphoneSources = @('IPhoneApp.cs','IPhoneMirrorDialog.cs','IPhoneMirrorEngine.cs','IPhoneNetwork.cs','WindowFrame.cs','AssemblyInfo.cs') | ForEach-Object { Join-Path $projectRoot ('src\' + $_) }
 $iphoneReferences = $references + ('/reference:' + (Join-Path $framework 'Microsoft.CSharp.dll'))
 $iphoneWindow = '/resource:' + (Join-Path $projectRoot 'src\IPhoneWindow.xaml') + ',IPhoneWindow.xaml'
 $iphoneTheme = '/resource:' + (Join-Path $projectRoot 'src\MainWindow.xaml') + ',MainWindow.xaml'
@@ -40,7 +41,18 @@ if ($LASTEXITCODE -ne 0) { throw 'Ошибка компиляции компон
 $nativeApk = Join-Path $nativeTools 'MorrorMonitor.apk'
 $nativeEncoder = Get-ChildItem -LiteralPath (Join-Path $nativeTools 'ffmpeg') -Filter ffmpeg.exe -Recurse -File | Select-Object -First 1 -ExpandProperty FullName
 if (!(Test-Path -LiteralPath $nativeApk) -or !$nativeEncoder) { throw 'Выполните scripts\get-native-monitor-dependencies.ps1 -BuildTools и scripts\build-android-monitor.ps1.' }
+$aapt = Get-ChildItem -LiteralPath (Join-Path $nativeTools 'android-tools') -Filter aapt2.exe -Recurse -File | Select-Object -First 1 -ExpandProperty FullName
+if (!$aapt) { throw 'Для чтения версии APK нужны Android Build Tools. Выполните scripts\get-native-monitor-dependencies.ps1 -BuildTools.' }
+Push-Location -LiteralPath $nativeTools
+try {
+    $apkInfo = & $aapt dump badging 'MorrorMonitor.apk'
+    if ($LASTEXITCODE -ne 0 -or $apkInfo[0] -notmatch "^package: name='ru\.morror\.monitor' versionCode='([1-9][0-9]*)'") {
+        throw 'Не удалось прочитать версию MorrorMonitor.apk.'
+    }
+    $apkVersion = $Matches[1]
+} finally { Pop-Location }
 Copy-Item -LiteralPath $nativeApk -Destination $runtime -Force
+[IO.File]::WriteAllText((Join-Path $runtime 'MorrorMonitor.version'), $apkVersion)
 Copy-Item -LiteralPath $nativeEncoder -Destination (Join-Path $runtime 'ffmpeg.exe') -Force
 $driverRuntime = Join-Path $runtime 'monitor-driver'
 New-Item -ItemType Directory -Force -Path $driverRuntime | Out-Null
@@ -63,7 +75,7 @@ try {
     $brandedEngine = Join-Path $brandingDir 'scrcpy.exe'
     & $compiler /nologo /target:exe ("/out:" + $iconTool) (Join-Path $projectRoot 'scripts\SetScrcpyIcon.cs')
     if ($LASTEXITCODE -ne 0) { throw 'Не удалось собрать замену значка scrcpy.' }
-    Copy-Item -LiteralPath (Join-Path $engine 'scrcpy.exe') -Destination $brandedEngine
+    Copy-Item -LiteralPath $liveEngine -Destination $brandedEngine
     & $iconTool $brandedEngine $icon
     if ($LASTEXITCODE -ne 0) { throw 'Не удалось заменить значок scrcpy.' }
     $destination = Join-Path $runtime 'scrcpy.exe'
@@ -80,6 +92,7 @@ Copy-Item -LiteralPath (Join-Path $projectRoot 'docs') -Destination $output -Rec
 $licenses = Join-Path $output 'licenses'
 New-Item -ItemType Directory -Force -Path $licenses | Out-Null
 Copy-Item -LiteralPath (Join-Path $projectRoot 'licenses\scrcpy-LICENSE.txt') -Destination $licenses -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\scrcpy-windows-live-resize.patch') -Destination $licenses -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'licenses\VDD-LICENSE.txt'),(Join-Path $projectRoot 'licenses\FFmpeg-LICENSE.txt'),(Join-Path $projectRoot 'licenses\FFmpeg-GPLv3.txt') -Destination $licenses -Force
 Copy-Item -LiteralPath $qrLibrary -Destination $output -Force
 Copy-Item -LiteralPath $icon -Destination $output -Force

@@ -1,0 +1,168 @@
+diff --git a/app/src/screen.c b/app/src/screen.c
+index fec823e..99bee4a 100644
+--- a/app/src/screen.c
++++ b/app/src/screen.c
+@@ -4,6 +4,10 @@
+ #include <string.h>
+ #include <SDL3/SDL.h>
+ 
++#ifdef _WIN32
++# include <windows.h>
++#endif
++
+ #include "events.h"
+ #include "icon.h"
+ #include "options.h"
+@@ -400,6 +404,27 @@ sc_screen_on_resize(struct sc_screen *screen, const SDL_WindowEvent *event) {
+ #endif
+ 
+ #ifdef CONTINUOUS_RESIZING_WORKAROUND
++#ifdef _WIN32
++static bool
++sc_screen_update_frame(struct sc_screen *screen);
++
++static bool SDLCALL
++track_live_move_or_resize(void *data, MSG *message) {
++    if (message->message == WM_ENTERSIZEMOVE
++            || message->message == WM_EXITSIZEMOVE) {
++        struct sc_screen *screen = data;
++        SDL_PropertiesID props = SDL_GetWindowProperties(screen->window);
++        HWND window = SDL_GetPointerProperty(props,
++                            SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);
++        if (message->hwnd == window) {
++            screen->window_moving_or_resizing =
++                message->message == WM_ENTERSIZEMOVE;
++        }
++    }
++    return true;
++}
++#endif
++
+ // On Windows and MacOS, resizing blocks the event loop, so resizing events are
+ // not triggered. As a workaround, handle them in an event handler.
+ //
+@@ -417,6 +442,27 @@ event_watcher(void *data, SDL_Event *event) {
+         sc_screen_on_resize(screen, &event->window);
+     }
+ 
++#ifdef _WIN32
++    // The native move/resize loop dispatches window messages but does not
++    // return to scrcpy's SDL_WaitEvent loop. Present the newest decoded frame
++    // on the same thread when SDL reports movement, a new size or a live expose.
++    bool live_event = event->type == SDL_EVENT_WINDOW_MOVED
++                   || event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED
++                   || (event->type == SDL_EVENT_WINDOW_EXPOSED
++                       && event->window.data1 == 1);
++    if (live_event && SDL_IsMainThread() && screen->window_shown
++            && !screen->paused && !screen->disconnected
++            && !screen->updating_frame && screen->window_moving_or_resizing
++            && event->window.windowID == SDL_GetWindowID(screen->window)) {
++        // Flush before consuming: a producer which queues a frame afterward
++        // still has a notification when the regular event loop resumes.
++        SDL_FlushEvent(SC_EVENT_NEW_FRAME);
++        if (!sc_screen_update_frame(screen)) {
++            LOGE("Frame update during window movement failed");
++        }
++    }
++#endif
++
+     return true;
+ }
+ #endif
+@@ -521,6 +567,10 @@ sc_screen_init(struct sc_screen *screen,
+ 
+     screen->resize_pending = false;
+     screen->window_shown = false;
++    screen->updating_frame = false;
++#ifdef _WIN32
++    screen->window_moving_or_resizing = false;
++#endif
+     screen->paused = false;
+     screen->resume_frame = NULL;
+     screen->orientation = SC_ORIENTATION_0;
+@@ -717,6 +767,9 @@ sc_screen_init(struct sc_screen *screen,
+             LOGW("Could not add event watcher for continuous resizing: %s",
+                  SDL_GetError());
+         }
++#ifdef _WIN32
++        SDL_SetWindowsMessageHook(track_live_move_or_resize, screen);
++#endif
+     }
+ #endif
+ 
+@@ -838,6 +891,14 @@ sc_screen_join(struct sc_screen *screen) {
+ 
+ void
+ sc_screen_destroy(struct sc_screen *screen) {
++#ifdef CONTINUOUS_RESIZING_WORKAROUND
++    if (screen->video) {
++#ifdef _WIN32
++        SDL_SetWindowsMessageHook(NULL, NULL);
++#endif
++        SDL_RemoveEventWatch(event_watcher, screen);
++    }
++#endif
+ #ifndef NDEBUG
+     assert(!screen->open);
+ #endif
+@@ -995,29 +1056,42 @@ static bool
+ sc_screen_update_frame(struct sc_screen *screen) {
+     assert(screen->video);
+ 
++    if (screen->updating_frame) {
++        return true;
++    }
++
++    sc_mutex_lock(&screen->mutex);
++    // A live resize can already have consumed the frame for this event.
++    if (!sc_frame_buffer_has_frame(&screen->fb)) {
++        sc_mutex_unlock(&screen->mutex);
++        return true;
++    }
++
+     if (screen->paused) {
+         if (!screen->resume_frame) {
+             screen->resume_frame = av_frame_alloc();
+             if (!screen->resume_frame) {
++                sc_mutex_unlock(&screen->mutex);
+                 LOG_OOM();
+                 return false;
+             }
+         } else {
+             av_frame_unref(screen->resume_frame);
+         }
+-        sc_mutex_lock(&screen->mutex);
+         sc_frame_buffer_consume(&screen->fb, screen->resume_frame);
+         sc_mutex_unlock(&screen->mutex);
+         return true;
+     }
+ 
+     av_frame_unref(screen->frame);
+-    sc_mutex_lock(&screen->mutex);
+     sc_frame_buffer_consume(&screen->fb, screen->frame);
+     // read with lock held
+     bool can_resize = !screen->prevent_auto_resize;
+     sc_mutex_unlock(&screen->mutex);
+-    return sc_screen_apply_frame(screen, can_resize);
++    screen->updating_frame = true;
++    bool ok = sc_screen_apply_frame(screen, can_resize);
++    screen->updating_frame = false;
++    return ok;
+ }
+ 
+ void
+diff --git a/app/src/screen.h b/app/src/screen.h
+index ffa0360..21dcc8a 100644
+--- a/app/src/screen.h
++++ b/app/src/screen.h
+@@ -95,6 +95,10 @@ struct sc_screen {
+ 
+     AVFrame *frame;
+ 
++    bool updating_frame; // Main thread only, including the live-resize watcher
++#ifdef _WIN32
++    bool window_moving_or_resizing;
++#endif
+     bool paused;
+     AVFrame *resume_frame;
+ 

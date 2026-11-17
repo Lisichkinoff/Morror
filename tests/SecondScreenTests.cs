@@ -160,6 +160,24 @@ class SecondScreenTests
         string fixture=Assembly.GetExecutingAssembly().Location;
         await AndroidMonitorClient.Install(fixture,"install-success",FixtureApk);
         Check(true,"APK install targets the selected device with -r and preserves a Unicode path with spaces");
+        string versionFile = Path.ChangeExtension(FixtureApk, ".version");
+        Directory.CreateDirectory(Path.GetDirectoryName(versionFile));
+        File.WriteAllText(versionFile, "19");
+        try
+        {
+            int installations = 0;
+            Action installing = () => installations++;
+            await AndroidMonitorClient.EnsureInstalled(fixture, "current-apk", FixtureApk, installing);
+            Check(installations == 0, "An already installed matching Android receiver skips ADB installation");
+            await AndroidMonitorClient.EnsureInstalled(fixture, "older-apk", FixtureApk, installing);
+            await AndroidMonitorClient.EnsureInstalled(fixture, "missing-apk", FixtureApk, installing);
+            Check(installations == 2, "Older and missing Android receivers are installed");
+            bool newer = false;
+            try { await AndroidMonitorClient.EnsureInstalled(fixture, "newer-apk", FixtureApk, installing); }
+            catch (IOException error) { newer = error.Message.Contains("более новая версия"); }
+            Check(newer && installations == 2, "A newer receiver is not downgraded");
+        }
+        finally { File.Delete(versionFile); }
         int phonePort=await AndroidMonitorClient.OpenDownloadTunnel(fixture,"download-phone",51423);
         Check(phonePort==51424,"APK download asks ADB to allocate a free port on the selected Android");
         await AndroidMonitorClient.CloseDownloadTunnel(fixture,"download-phone",phonePort);
@@ -203,6 +221,32 @@ class SecondScreenTests
                 string sample=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"native-sample.h264");File.WriteAllBytes(sample,output.ToArray());
                 var decoded=await Commands.Run(executable,10000,"-hide_banner","-loglevel","error","-i",sample,"-f","framemd5","-");
                 Check(decoded.ExitCode==0&&decoded.Output.Split('\n').Count(line=>line.StartsWith("0,"))>=8,"Independent decoder verifies all native H.264 sample frames");
+                Check(server.Status.Contains("первый кадр"), "An authenticated phone remains in the first-frame stage until it reports rendering");
+                using (var drainLifetime = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token))
+                {
+                    var drain = Task.Run(async () =>
+                    {
+                        var buffer = new byte[32768];
+                        try { while (await stream.ReadAsync(buffer, 0, buffer.Length, drainLifetime.Token) > 0) { } }
+                        catch (IOException) { }
+                        catch (OperationCanceledException) { }
+                        catch (ObjectDisposedException) { }
+                    });
+                    await Task.Delay(600);
+                    for (int sampleIndex = 0; sampleIndex <= 4; sampleIndex++)
+                    {
+                        await Send(stream, 18, new { frames = 8 + sampleIndex, decoded = 8 + sampleIndex });
+                        if (sampleIndex < 4) await Task.Delay(600);
+                    }
+                    await Until(() => server.SustainedLowFps, "Sustained low rendered FPS was not detected");
+                    Check(server.Status.Contains("лимит 30 FPS") && server.Status.Contains("на Android") && server.DecodedFrames == 12,
+                        "Second monitor shows the rendered FPS beside its configured limit and detects repeated slow samples");
+                    await Task.Delay(650);
+                    await Send(stream, 18, new { frames = 37, decoded = 37 });
+                    await Until(() => !server.SustainedLowFps, "FPS warning did not clear after recovery");
+                    client.Close();
+                    await drain;
+                }
             }
         }
         Check(await Task.WhenAny(server.Completion,Task.Delay(5000))==server.Completion,"Receiver disconnect completes the owned monitor session without waiting for a reconnect");
@@ -227,13 +271,30 @@ class SecondScreenTests
         }
         Window owner;using(var source=Assembly.GetExecutingAssembly().GetManifestResourceStream("MainWindow.xaml"))owner=(Window)System.Windows.Markup.XamlReader.Load(source);
         owner.Show();
-        var dialog=new SecondScreenDialog(owner,"not-an-adb.exe",null);var type=typeof(SecondScreenDialog);var flags=BindingFlags.NonPublic|BindingFlags.Instance;
+        var dialog=new SecondScreenDialog(owner,Assembly.GetExecutingAssembly().Location,null);var type=typeof(SecondScreenDialog);var flags=BindingFlags.NonPublic|BindingFlags.Instance;
         var window=(Window)type.GetField("window",flags).GetValue(dialog);
+        var settingsType = type.GetNestedType("MonitorSession", BindingFlags.NonPublic);
+        var settings = Activator.CreateInstance(settingsType, true);
+        settingsType.GetField("Device", flags).SetValue(settings, new Device { Serial = "LOST-PHONE", Model = "Original phone", State = "device" });
+        type.GetField("activeSettings", flags).SetValue(dialog, settings);
         type.GetField("server",flags).SetValue(dialog,server);
         type.GetField("sessionDisplay",flags).SetValue(dialog,"nonexistent-owned-display-fixture");
         await (Task)type.GetMethod("CheckSession",flags).Invoke(dialog,null);
         Check(type.GetField("server",flags).GetValue(dialog)==null&&type.GetField("sessionDisplay",flags).GetValue(dialog)==null,"Disconnect clears the adopted display even if it was already active at session start");
         Check(((Button)window.FindName("MonitorStart")).IsEnabled&&!((Button)window.FindName("MonitorStop")).IsEnabled,"Disconnect restores start/stop controls after automatic session cleanup");
+        var resume = (Button)window.FindName("MonitorResume");
+        Check(resume.Visibility == Visibility.Visible && resume.IsEnabled, "Second screen offers a manual resume after cleanup");
+        await (Task)type.GetMethod("StartMonitor", flags).Invoke(dialog, new object[] { true });
+        Check(type.GetField("server", flags).GetValue(dialog) == null && resume.Visibility == Visibility.Visible &&
+            ((TextBlock)window.FindName("MonitorStatus")).Text.Contains("Original phone"),
+            "Second screen refuses to resume on a different ready phone");
+        settingsType.GetField("Device", flags).SetValue(settings, new Device { Serial = "OTHER-PHONE", Model = "Other phone", State = "device" });
+        type.GetField("runtime", flags).SetValue(dialog, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "missing-runtime-" + Guid.NewGuid()));
+        await (Task)type.GetMethod("StartMonitor", flags).Invoke(dialog, new object[] { true });
+        Check(((Device)((ComboBox)window.FindName("MonitorDevices")).SelectedItem).Serial == "OTHER-PHONE" &&
+            ((ComboBox)window.FindName("MonitorQuality")).SelectedIndex == 0 && ((ComboBox)window.FindName("MonitorFps")).SelectedIndex == 0 &&
+            ((CheckBox)window.FindName("MonitorTouch")).IsChecked == false && ((CheckBox)window.FindName("MonitorAudio")).IsChecked == false,
+            "Second-screen resume restores the saved quality, FPS, touch and audio before preparing the driver");
         type.GetField("allowClose",flags).SetValue(dialog,true);window.Close();owner.Close();
     }
     [StructLayout(LayoutKind.Sequential)]struct NativePoint{public int x,y;}
@@ -263,6 +324,11 @@ class SecondScreenTests
     }
     [STAThread]static int Main(string[] args)
     {
+        if (args.SequenceEqual(new[] { "devices", "-l" }))
+        {
+            Console.WriteLine("List of devices attached\nOTHER-PHONE device usb:1-2 model:Other_phone");
+            return 0;
+        }
         if(args.Length>0&&args[0]=="-hide_banner")
         {
             int input=Array.IndexOf(args,"-i"),codec=Array.IndexOf(args,"-c:v"),rate=Array.IndexOf(args,"-b:v");
@@ -277,9 +343,22 @@ class SecondScreenTests
                 return 0;
             }
             if(args.SequenceEqual(new[]{"-s","download-phone","reverse","--remove","tcp:51424"}))return 0;
+            if (args.Skip(2).SequenceEqual(new[] { "shell", "am", "get-current-user" }))
+            {
+                Console.WriteLine("10");
+                return 0;
+            }
+            if (args.Skip(2).SequenceEqual(new[] { "shell", "pm", "list", "packages", "--user", "10", "--show-versioncode", "ru.morror.monitor" }))
+            {
+                if (args[1] == "current-apk") Console.WriteLine("package:ru.morror.monitor versionCode:19");
+                if (args[1] == "older-apk") Console.WriteLine("package:ru.morror.monitor versionCode:18");
+                if (args[1] == "newer-apk") Console.WriteLine("package:ru.morror.monitor versionCode:20");
+                if (args[1] == "missing-apk") Console.WriteLine("package:ru.morror.monitor.other versionCode:19");
+                return 0;
+            }
             if(args.Length!=5||args[2]!="install"||args[3]!="-r"||args[4]!=FixtureApk)return 2;
             if(args[1]=="install-restricted"){Console.Error.WriteLine("Failure [INSTALL_FAILED_USER_RESTRICTED]");return 1;}
-            Console.WriteLine(args[1]=="install-success"?"Success":"Success is still pending");return 0;
+            Console.WriteLine(args[1]=="install-success"||args[1]=="older-apk"||args[1]=="missing-apk"?"Success":"Success is still pending");return 0;
         }
         int result=1;var application=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};application.Startup+=async(s,e)=>{
             try{await Protocol();Resolution();PhysicalRefreshRate();FreshScreenGeometry();InstallationErrors();await InstallationCommands();Ui();VirtualMonitorDriver.VerifyBundle(args[1]);Check(true,"Bundled display driver files match pinned hashes and a trusted Windows catalog signature");string codec=await NativeMonitorEncoder.Select(args[0],CancellationToken.None);Console.WriteLine("Encoder: "+codec);await Network(args[0],codec);await DisconnectCleanup(args[0],codec);await NativeTouch();Console.WriteLine(checks+" native monitor checks passed.");result=0;}catch(Exception error){Console.WriteLine(error);}finally{application.Shutdown();}
