@@ -14,13 +14,30 @@
     <SolidColorBrush x:Key="PanelFill" Color="#292B38"/>
     <SolidColorBrush x:Key="PanelLine" Color="#3A3C4D"/>
     <Style x:Key="WindowFrameStyle" TargetType="Border">
-      <Setter Property="Background" Value="#1E1F29"/><Setter Property="BorderBrush" Value="#535166"/>
-      <Setter Property="CornerRadius" Value="26"/><Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Background" Value="#1E1F29"/>
+      <Setter Property="CornerRadius" Value="26"/>
       <Style.Triggers>
         <DataTrigger Binding="{Binding WindowState, RelativeSource={RelativeSource AncestorType=Window}}" Value="Maximized">
-          <Setter Property="CornerRadius" Value="0"/><Setter Property="BorderThickness" Value="0"/>
+          <Setter Property="CornerRadius" Value="0"/>
         </DataTrigger>
       </Style.Triggers>
+    </Style>
+    <Style x:Key="DialogTitle" TargetType="ContentControl">
+      <Setter Property="Margin" Value="22,0,0,0"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ContentControl">
+            <StackPanel Orientation="Horizontal">
+              <Image Width="18" Height="18" Source="{Binding Icon, RelativeSource={RelativeSource AncestorType=Window}}"/>
+              <TextBlock Text="morror." Foreground="#F2EFFA" FontSize="15" FontWeight="SemiBold" Margin="8,0,0,0" VerticalAlignment="Center"/>
+              <ContentPresenter Margin="8,0,0,0" VerticalAlignment="Center"/>
+            </StackPanel>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
     <Style TargetType="TextBlock"><Setter Property="TextWrapping" Value="Wrap"/></Style>
     <Style TargetType="Button">
@@ -318,7 +335,13 @@
 
                 <Border Style="{StaticResource Card}" Padding="15,14" Margin="0,12,0,0"><StackPanel>
                   <Grid Margin="0,0,0,10"><TextBlock Text="Трансляция" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/><Button x:Name="OpenSettingsButton" Style="{StaticResource PanelIconButton}" Content="&#xE713;" HorizontalAlignment="Right" ToolTip="Настройки трансляции" AutomationProperties.Name="Настройки трансляции"/></Grid>
-                  <ComboBox x:Name="StreamPreset" SelectedIndex="0" AutomationProperties.Name="Режим трансляции"><ComboBoxItem Content="Баланс · HD / 60 FPS"/><ComboBoxItem Content="Меньше нагрев · 720 px / 30 FPS"/><ComboBoxItem Content="Чётко · Full HD / 60 FPS"/><ComboBoxItem Content="Свои настройки"/></ComboBox>
+                  <ComboBox x:Name="StreamPreset" SelectedIndex="0" SelectedValuePath="Tag" AutomationProperties.Name="Режим трансляции">
+                    <ComboBoxItem Tag="0" Content="Баланс · HD / 60 FPS"/>
+                    <ComboBoxItem Tag="1" Content="Меньше нагрев · 720 px / 30 FPS"/>
+                    <ComboBoxItem Tag="2" Content="Чётко · Full HD / 60 FPS"/>
+                    <ComboBoxItem Tag="4" Content="Плавно · 720 px / 60 FPS"/>
+                    <ComboBoxItem Tag="3" Content="Свои настройки"/>
+                  </ComboBox>
                   <CheckBox x:Name="Audio" Content="Звук на ПК" IsChecked="True" Margin="0,12,0,0"/>
                 </StackPanel></Border>
               </StackPanel>

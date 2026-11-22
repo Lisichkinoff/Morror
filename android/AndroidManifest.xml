@@ -1,4 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="ru.morror.monitor" android:versionCode="20" android:versionName="0.9.5">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="ru.morror.monitor" android:versionCode="21" android:versionName="0.9.6">
  <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35"/>
  <uses-permission android:name="android.permission.INTERNET"/>
  <application android:label="Morror Монитор" android:icon="@mipmap/ic_monitor" android:roundIcon="@mipmap/ic_monitor" android:theme="@android:style/Theme.Material.NoActionBar" android:allowBackup="false" android:supportsRtl="true">

@@ -4,9 +4,9 @@
 
 Morror combines a Russian-language WPF desktop interface, [scrcpy 5.0.1](https://github.com/Genymobile/scrcpy/tree/v5.0.1) for Android-to-PC mirroring, and a native Android receiver for PC-to-Android display extension. The Windows scrcpy client includes Morror's fix for live video updates during window moves and resizes.
 
-**Latest release: 0.9.5.** Both Windows packages include Android and iPhone mirroring, the native second-monitor APK, the video encoder and the signed virtual display driver.
+**Latest release: 0.9.6.** Both Windows packages include Android and iPhone mirroring, the native second-monitor APK, the video encoder and the signed virtual display driver.
 
-[Published releases](https://github.com/Lisichkinoff/Morror/releases) · [Download 0.9.5 installer](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.5/Morror-0.9.5-Setup-win64.exe) · [Download 0.9.5 portable ZIP](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.5/Morror-0.9.5-win64.zip) · [Second-monitor guide](docs/second-screen.md)
+[Published releases](https://github.com/Lisichkinoff/Morror/releases) · [Download 0.9.6 installer](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.6/Morror-0.9.6-Setup-win64.exe) · [Download 0.9.6 portable ZIP](https://github.com/Lisichkinoff/Morror/releases/download/v0.9.6/Morror-0.9.6-win64.zip) · [Second-monitor guide](docs/second-screen.md)
 
 ## Features
 
@@ -58,7 +58,7 @@ A real Pixel 8 displaying a **synthetic test pattern at 2400 × 1080**, with the
 
 The Windows installer runs per user. Windows asks for administrator approval to install the virtual display component, enable it for a second-screen session, or register a previously unsupported monitor resolution. Root access on Android is not required.
 
-Run `dist/Morror-0.9.5/Morror.exe`, install `dist/Morror-0.9.5-Setup-win64.exe`, or extract the entire `dist/Morror-0.9.5-win64.zip`. Keep the runtime, QRCoder library and license files together.
+Run `dist/Morror-0.9.6/Morror.exe`, install `dist/Morror-0.9.6-Setup-win64.exe`, or extract the entire `dist/Morror-0.9.6-win64.zip`. Keep the runtime, QRCoder library and license files together.
 
 Starting with 0.9.3, Morror checks GitHub Releases in the background on startup. **Скачать** downloads and verifies the installer, applies the update in the current folder, and reopens Morror. **Позже** dismisses the notice until the next launch. To upgrade from 0.9.2 or earlier, exit the running app from its tray menu and install the current version manually once.
 
@@ -101,12 +101,13 @@ Android-to-PC audio over Wi-Fi uses a 120 ms target buffer to absorb brief packe
 | Balanced, default | 1280 px | 60 FPS | 8 Mbps |
 | Lower load | 720 px | 30 FPS | 4 Mbps |
 | Sharp | 1920 px | 60 FPS | 16 Mbps |
+| Smooth | 720 px | 60 FPS | 4 Mbps |
 
 Settings also expose 2K, QHD, 4K, original resolution, higher FPS limits and an uncapped mode. While mirroring, Morror shows measured FPS alongside the configured limit. Actual frame rate depends on the device, encoder and connection. Higher limits increase load. Morror saves mirroring preferences as you change them and restores them at startup. Video quality applies on the next mirroring session.
 
 The default `--keyboard=uhid` mode supports physical-keyboard layouts, including Russian and English. During mirroring, press **Alt+K** to configure Android's physical keyboard. Language switching is usually **Ctrl+Space**; Android layouts are independent of Windows layouts. A compatible SDK keyboard mode is available for devices that cannot use UHID.
 
-Morror can hide to the tray after the mirror opens. Double-click its tray icon to restore settings; stopping or losing the stream restores them automatically. Pinning the mirror can be changed during playback. If phone-screen power saving is enabled, **Alt+Shift+O** turns the Android screen back on.
+Morror can hide to the tray after the mirror opens. Double-click its tray icon to restore settings. Stopping or losing the stream restores them automatically. The Android mirroring toolbar shows measured FPS and provides controls for pinning, fullscreen, screenshots and stopping the stream. If phone-screen power saving is enabled, **Alt+Shift+O** turns the Android screen back on.
 
 After an unexpected interruption, reconnect the phone using the same connection and select **Возобновить** (Resume). Morror starts the Android stream with the previous settings. The second-monitor window offers the same action after it detaches the interrupted display.
 

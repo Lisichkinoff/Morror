@@ -52,6 +52,8 @@ namespace Morror
             window.MinHeight = Math.Min(window.MinHeight, area.Height);
             window.Width = Math.Min(window.Width, area.Width);
             window.Height = Math.Min(window.Height, area.Height);
+            WindowFrame.Bind(window, Get<Border>("WindowFrame"), Get<Button>("SendMinimize"),
+                Get<Button>("SendMaximize"), Get<Button>("SendTitleClose"));
             window.Loaded += async (s, e) => await Refresh();
             Get<Button>("SendRefresh").Click += async (s, e) => await Refresh();
             Get<Button>("SendStart").Click += async (s, e) => await Send();

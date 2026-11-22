@@ -13,11 +13,7 @@
         <RowDefinition Height="40"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
       <Grid Margin="22,0,12,0">
-        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-          <Image Source="{Binding Icon, RelativeSource={RelativeSource AncestorType=Window}}" Width="18" Height="18"/>
-          <TextBlock Text="morror." FontSize="15" FontWeight="SemiBold" Margin="8,0,0,0"/>
-          <TextBlock Text=" / iPhone" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" FontSize="12"/>
-        </StackPanel>
+        <ContentControl Style="{DynamicResource DialogTitle}" Content="/ iPhone" Margin="0"/>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
           <Button x:Name="MinimizeButton" Style="{DynamicResource CaptionButton}" Content="&#xE921;" AutomationProperties.Name="Свернуть"/>
           <Button x:Name="MaximizeButton" Style="{DynamicResource MaximizeCaptionButton}"/>

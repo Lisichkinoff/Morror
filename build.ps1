@@ -12,8 +12,8 @@ $qrLibrary = Join-Path $projectRoot 'tools\qrcoder-1.8.1\lib\net40\QRCoder.dll'
 if (!(Test-Path -LiteralPath $qrLibrary)) { throw 'Сначала выполните scripts\get-qr-dependencies.ps1.' }
 $references += '/reference:' + $qrLibrary
 $sources = @('Core.cs','App.cs','TrayController.cs','WirelessPairing.cs','QrPairingDialog.cs','MirrorWindow.cs','DeviceCapabilities.cs','FileTransfer.cs','ClipboardTransfer.cs','TransferDialog.cs','SecondScreenProtocol.cs','MonitorResolution.cs','ScreenTouchInjection.cs','NativeMonitor.cs','DisplayTopology.cs','VirtualMonitorDriver.cs','WasapiMonitorAudio.cs','AndroidMonitorClient.cs','SecondScreenDialog.cs','AssemblyInfo.cs') | ForEach-Object { Join-Path $projectRoot ('src\' + $_) }
-$sources += 'AppUpdate.cs','MonitorCapture.cs','StreamSettings.cs','MonitorApkDownload.cs','MonitorApkFirewall.cs','SendFilesDialog.cs','WindowFrame.cs' | ForEach-Object { Join-Path $projectRoot ('src\' + $_) }
-$resources = @('MainWindow.xaml','QrWindow.xaml','TransferWindow.xaml','SecondScreenWindow.xaml','SendFilesWindow.xaml') | ForEach-Object { '/resource:' + (Join-Path $projectRoot ('src\' + $_)) + ',' + $_ }
+$sources += 'AppUpdate.cs','MonitorCapture.cs','StreamSettings.cs','MonitorApkDownload.cs','MonitorApkFirewall.cs','SendFilesDialog.cs','WindowFrame.cs','MirrorToolbar.cs' | ForEach-Object { Join-Path $projectRoot ('src\' + $_) }
+$resources = @('MainWindow.xaml','QrWindow.xaml','TransferWindow.xaml','SecondScreenWindow.xaml','SendFilesWindow.xaml','MirrorToolbar.xaml') | ForEach-Object { '/resource:' + (Join-Path $projectRoot ('src\' + $_)) + ',' + $_ }
 $icon = Join-Path $projectRoot 'assets\morror.ico'
 $mirrorIcon = Join-Path $projectRoot 'assets\morror.png'
 if (!(Test-Path -LiteralPath $icon) -or !(Test-Path -LiteralPath $mirrorIcon)) { & (Join-Path $projectRoot 'scripts\build-icon.ps1') }

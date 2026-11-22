@@ -41,7 +41,7 @@ namespace Morror
             window.MinWidth = Math.Min(window.MinWidth, area.Width); window.MinHeight = Math.Min(window.MinHeight, area.Height);
             window.Width = Math.Min(window.Width, area.Width); window.Height = Math.Min(window.Height, area.Height);
             Get<TextBlock>("TransferDevice").Text = model;
-            Get<Button>("TransferClose").Click += (s, e) => window.Close();
+            WindowFrame.Bind(window, Get<Border>("WindowFrame"), Get<Button>("TransferClose"));
             Get<Button>("RemoteRefresh").Click += async (s, e) => await Load(directory);
             Get<Button>("RemoteUp").Click += async (s, e) => await Load(directory == "/sdcard" ? directory : directory.Substring(0, directory.LastIndexOf('/')));
             Get<ComboBox>("RemoteFolder").SelectionChanged += async (s, e) => { if (loaded && !busy) await Load((string)((ComboBoxItem)Get<ComboBox>("RemoteFolder").SelectedItem).Tag); };

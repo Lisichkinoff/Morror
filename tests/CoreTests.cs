@@ -39,6 +39,10 @@ class CoreTests
                 Check(!audioArgs.Any(a => a.StartsWith("--video-buffer=")), "Audio smoothing does not delay video/control");
             }
             Check(!Protocol.MirrorArguments("192.168.1.2:5555", 1, 60, false, true, wireless: true).Any(a => a.StartsWith("--audio-buffer=")), "Disabled audio does not request a buffer");
+            var smooth = Protocol.MirrorArguments("PHONE", 0, 60, true, true, wireless: true);
+            Check(smooth.Contains("--max-size=720") && smooth.Contains("--max-fps=60")
+                && smooth.Contains("--video-bit-rate=4M") && !smooth.Any(a => a.StartsWith("--video-buffer=")),
+                "Smooth mode keeps a 60 FPS cap and lowers video load without buffering");
             Check(!Protocol.MirrorArguments("ABC", Protocol.NativeQuality, 30, true, true).Any(a => a.StartsWith("--max-size")), "Original resolution is uncapped");
             foreach (int fps in new[] { 30, 60, 90, 120, 144, 165, 180, 240 })
             {

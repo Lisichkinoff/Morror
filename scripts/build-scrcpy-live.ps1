@@ -119,10 +119,10 @@ try {
         try {
             if (!$process.WaitForExit(15000)) {
                 $process.Kill()
-                throw 'Проверка перемещения или изменения размера не завершилась.'
+                throw 'Проверка окна трансляции не завершилась.'
             }
             Write-Host $process.StandardOutput.ReadToEnd()
-            if ($process.ExitCode -ne 0) { throw 'Кадры остановились при перемещении или изменении размера.' }
+            if ($process.ExitCode -ne 0) { throw 'Проверка окна трансляции не прошла.' }
         } finally { $process.Dispose() }
     }
 } finally { Pop-Location }

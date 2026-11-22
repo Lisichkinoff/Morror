@@ -1,10 +1,21 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="Morror — отправить на телефон" Width="540" Height="460" MinWidth="420" MinHeight="390"
         WindowStartupLocation="CenterScreen" Background="#22232D" Foreground="#F4F3FA"
         FontFamily="Segoe UI" FontSize="14" UseLayoutRounding="True">
-  <Border Padding="24">
-  <Grid>
+  <shell:WindowChrome.WindowChrome><shell:WindowChrome CaptionHeight="40" GlassFrameThickness="0" ResizeBorderThickness="6" CornerRadius="52" UseAeroCaptionButtons="False"/></shell:WindowChrome.WindowChrome>
+  <Border x:Name="WindowFrame" Style="{DynamicResource WindowFrameStyle}">
+  <DockPanel LastChildFill="True">
+    <Grid DockPanel.Dock="Top" Height="40">
+      <ContentControl Style="{DynamicResource DialogTitle}" Content="/ Отправка файлов"/>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,12,0">
+        <Button x:Name="SendMinimize" Style="{DynamicResource CaptionButton}" Content="&#xE921;" AutomationProperties.Name="Свернуть"/>
+        <Button x:Name="SendMaximize" Style="{DynamicResource MaximizeCaptionButton}"/>
+        <Button x:Name="SendTitleClose" Style="{DynamicResource CaptionButton}" Content="&#xE8BB;" AutomationProperties.Name="Закрыть"/>
+      </StackPanel>
+    </Grid>
+  <Grid Margin="22,8,22,18">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
       <RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
@@ -39,5 +50,6 @@
               Background="#A99AFF" BorderBrush="#A99AFF" Foreground="#272139" FontWeight="SemiBold"/>
     </StackPanel>
   </Grid>
+  </DockPanel>
   </Border>
 </Window>

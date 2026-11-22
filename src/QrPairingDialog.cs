@@ -39,7 +39,7 @@ namespace Morror
             window.Height = Math.Min(window.Height, area.Height);
             timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             timer.Tick += (s, e) => UpdateCountdown();
-            Get<Button>("QrTitleClose").Click += (s, e) => window.Close();
+            WindowFrame.Bind(window, Get<Border>("WindowFrame"), Get<Button>("QrTitleClose"));
             Get<Button>("QrClose").Click += (s, e) => window.Close();
             Get<Button>("QrRenew").Click += async (s, e) => await Restart();
             Get<Button>("QrConnect").Click += async (s, e) => await ConnectManually(false);

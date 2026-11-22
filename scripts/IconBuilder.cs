@@ -13,22 +13,49 @@ class IconBuilder
         path.AddArc(x, y, diameter, diameter, 180, 90); path.AddArc(x + width - diameter, y, diameter, diameter, 270, 90);
         path.AddArc(x + width - diameter, y + height - diameter, diameter, diameter, 0, 90); path.AddArc(x, y + height - diameter, diameter, diameter, 90, 90); path.CloseFigure(); return path;
     }
+
+    static GraphicsPath MonogramPanel()
+    {
+        var path = new GraphicsPath();
+        path.AddLine(57, 72, 71, 72);
+        path.AddBezier(71, 72, 74, 72, 77, 73, 80, 76);
+        path.AddLines(new[]
+        {
+            new Point(80, 76), new Point(124, 123), new Point(124, 165),
+            new Point(82, 123), new Point(82, 180)
+        });
+        path.AddBezier(82, 180, 82, 184, 80, 187, 75, 187);
+        path.AddLine(75, 187, 57, 187);
+        path.AddBezier(57, 187, 52, 187, 50, 184, 50, 180);
+        path.AddLine(50, 180, 50, 79);
+        path.AddBezier(50, 79, 50, 75, 53, 72, 57, 72);
+        path.CloseFigure();
+        return path;
+    }
+
     static Bitmap Render(int size)
     {
         using (var large = new Bitmap(1024, 1024, PixelFormat.Format32bppArgb))
         {
             using (var g = Graphics.FromImage(large))
-            using (var frame = Rounded(8, 8, 240, 240, 52))
-            using (var bg = new LinearGradientBrush(new Rectangle(8, 8, 240, 240), Color.FromArgb(72,57,118), Color.FromArgb(34,35,45), 65))
-            using (var lavender = new LinearGradientBrush(new Rectangle(43,43,170,170), Color.FromArgb(220,208,255), Color.FromArgb(153,128,242), 65))
-            using (var edge = new Pen(Color.FromArgb(112,93,159), 4))
-            using (var diamond = new Pen(lavender, 16) { LineJoin = LineJoin.Round })
-            using (var letter = new Pen(Color.FromArgb(244,237,255), 16) { LineJoin = LineJoin.Round, StartCap = LineCap.Round, EndCap = LineCap.Round })
+            using (var frame = Rounded(12, 15, 232, 230, 35))
+            using (var bg = new LinearGradientBrush(new PointF(12, 15), new PointF(244, 245),
+                Color.FromArgb(73, 59, 112), Color.FromArgb(33, 34, 56)))
+            using (var edge = new Pen(Color.FromArgb(107, 94, 145), 1.6f))
+            using (var leftPanel = MonogramPanel())
+            using (var rightPanel = (GraphicsPath)leftPanel.Clone())
+            using (var reflection = new Matrix(-1, 0, 0, 1, 256, 0))
+            using (var leftLavender = new SolidBrush(Color.FromArgb(163, 149, 250)))
+            using (var rightLavender = new SolidBrush(Color.FromArgb(205, 190, 251)))
             {
-                g.Clear(Color.Transparent); g.SmoothingMode = SmoothingMode.AntiAlias; g.ScaleTransform(4, 4);
-                g.FillPath(bg, frame); g.DrawPath(edge, frame);
-                g.DrawPolygon(diamond, new[] { new PointF(128,43), new PointF(213,128), new PointF(128,213), new PointF(43,128) });
-                g.DrawLines(letter, new[] { new PointF(94,151), new PointF(94,106), new PointF(128,135), new PointF(162,106), new PointF(162,151) });
+                g.Clear(Color.Transparent);
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.ScaleTransform(4, 4);
+                g.FillPath(bg, frame);
+                g.DrawPath(edge, frame);
+                rightPanel.Transform(reflection);
+                g.FillPath(leftLavender, leftPanel);
+                g.FillPath(rightLavender, rightPanel);
             }
             var output = new Bitmap(size, size, PixelFormat.Format32bppArgb);
             using (var g = Graphics.FromImage(output)) { g.InterpolationMode = InterpolationMode.HighQualityBicubic; g.CompositingQuality = CompositingQuality.HighQuality; g.DrawImage(large, new Rectangle(0,0,size,size)); }

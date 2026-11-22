@@ -20,6 +20,7 @@ namespace Morror
         string runtime = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "runtime");
         bool wifi, refreshing, networkBusy, starting, closing, stopRequested, exitRequested, hiddenToTray, trayHintShown, applyingPreset;
         Process mirror;
+        MirrorToolbar mirrorToolbar;
         Process iPhoneWindow;
         Device activeDevice, interruptedDevice;
         bool streamStarted;
@@ -40,7 +41,10 @@ namespace Morror
         readonly CancellationTokenSource updateLifetime = new CancellationTokenSource();
         readonly bool checkForUpdates;
         readonly string settingsPath;
-        static readonly string[] SelectionSettings = { "Quality", "FrameRate", "KeyboardMode", "StreamPreset" };
+        static readonly string[] SelectionSettings = { "Quality", "FrameRate", "KeyboardMode" };
+        const int CustomPreset = 3;
+        static readonly int[] PresetQuality = { 1, 0, 2, -1, 0 };
+        static readonly int[] PresetFrameRate = { 2, 1, 2, -1, 2 };
         static readonly string[] ToggleSettings = { "ScreenOff", "Control", "ClipboardSync", "AlwaysOnTop", "AutoTray", "Audio" };
         AppUpdate availableUpdate;
         public App() : this("Local\\Morror.ShowSettings", true, StreamSettings.UserPath) { }
@@ -195,12 +199,12 @@ namespace Morror
             Get<ComboBox>("StreamPreset").SelectionChanged += (s, e) =>
             {
                 if (applyingPreset) return;
-                int preset = Get<ComboBox>("StreamPreset").SelectedIndex;
-                if (preset >= 0 && preset <= 2)
+                int preset = SelectedPreset();
+                if (HasFixedPreset(preset))
                 {
                     applyingPreset = true;
-                    Get<ComboBox>("Quality").SelectedIndex = preset == 1 ? 0 : preset == 2 ? 2 : 1;
-                    Get<ComboBox>("FrameRate").SelectedIndex = preset == 1 ? 1 : 2;
+                    Get<ComboBox>("Quality").SelectedIndex = PresetQuality[preset];
+                    Get<ComboBox>("FrameRate").SelectedIndex = PresetFrameRate[preset];
                     applyingPreset = false;
                 }
                 SaveStreamSettings();
@@ -221,7 +225,7 @@ namespace Morror
                 applyingPreset = true;
                 Get<ComboBox>("Quality").SelectedIndex = Protocol.NativeQuality;
                 Get<ComboBox>("FrameRate").SelectedIndex = 0;
-                Get<ComboBox>("StreamPreset").SelectedIndex = 3;
+                SelectPreset(CustomPreset);
                 var selected = Get<ComboBox>("Devices").SelectedItem as Device;
                 DeviceCapabilities info;
                 if (selected != null && capabilities.TryGetValue(selected.Serial, out info) && info.ApiLevel > 0) Get<CheckBox>("Audio").IsChecked = info.ApiLevel >= 30;
@@ -290,15 +294,32 @@ namespace Morror
                 await Refresh();
                 if (closing) return;
                 timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
-                timer.Tick += async (ts, te) => await Refresh(); timer.Start();
+                timer.Tick += async (ts, te) => { if (!Running) await Refresh(); };
+                timer.Start();
             };
+        }
+
+        int SelectedPreset()
+        {
+            int preset;
+            return int.TryParse(Get<ComboBox>("StreamPreset").SelectedValue as string, out preset)
+                ? preset : CustomPreset;
+        }
+
+        void SelectPreset(int preset)
+        {
+            Get<ComboBox>("StreamPreset").SelectedValue = preset.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        static bool HasFixedPreset(int preset)
+        {
+            return preset >= 0 && preset < PresetQuality.Length && preset != CustomPreset;
         }
 
         void VideoSettingChanged()
         {
             if (applyingPreset) return;
-            var preset = Get<ComboBox>("StreamPreset");
-            if (preset.SelectedIndex != 3) preset.SelectedIndex = 3;
+            if (SelectedPreset() != CustomPreset) SelectPreset(CustomPreset);
             else SaveStreamSettings();
         }
 
@@ -326,11 +347,14 @@ namespace Morror
                     object value;
                     if (values.TryGetValue(name, out value) && value is bool) Get<CheckBox>(name).IsChecked = (bool)value;
                 }
-                var preset = Get<ComboBox>("StreamPreset");
-                int index = preset.SelectedIndex;
-                if (index < 3 && (Get<ComboBox>("Quality").SelectedIndex != (index == 1 ? 0 : index == 2 ? 2 : 1) ||
-                    Get<ComboBox>("FrameRate").SelectedIndex != (index == 1 ? 1 : 2)))
-                    preset.SelectedIndex = 3;
+                object savedPreset;
+                if (values.TryGetValue("StreamPreset", out savedPreset) && savedPreset is int
+                    && ((int)savedPreset == CustomPreset || HasFixedPreset((int)savedPreset)))
+                    SelectPreset((int)savedPreset);
+                int preset = SelectedPreset();
+                if (HasFixedPreset(preset) && (Get<ComboBox>("Quality").SelectedIndex != PresetQuality[preset] ||
+                    Get<ComboBox>("FrameRate").SelectedIndex != PresetFrameRate[preset]))
+                    SelectPreset(CustomPreset);
             }
             finally { applyingPreset = false; }
         }
@@ -339,6 +363,7 @@ namespace Morror
         {
             var values = new Dictionary<string, object>();
             foreach (string name in SelectionSettings) values[name] = Get<ComboBox>(name).SelectedIndex;
+            values["StreamPreset"] = SelectedPreset();
             foreach (string name in ToggleSettings) values[name] = Get<CheckBox>(name).IsChecked == true;
             return values;
         }
@@ -568,6 +593,7 @@ namespace Morror
             {
                 if (Running && !MirrorWindow.SetPinned(mirror, pinned)) return;
                 if (tray != null) tray.SetPinned(pinned);
+                if (mirrorToolbar != null) mirrorToolbar.SetPinned(pinned);
             }
             catch (InvalidOperationException) { }
             catch (System.ComponentModel.Win32Exception e) { Notice("Не удалось изменить закрепление окна. Повторите переключение."); AddLog(e.Message); }
@@ -633,6 +659,7 @@ namespace Morror
             Get<Grid>("ProfileActualRow").Visibility = Running ? Visibility.Visible : Visibility.Collapsed;
             string measured = actualFps.HasValue ? actualFps.Value + " FPS" : "—";
             Get<TextBlock>("ProfileActualFps").Text = measured;
+            if (mirrorToolbar != null) mirrorToolbar.SetFps(actualFps);
             if (!Running) return;
             var limit = Get<TextBlock>("ProfileFps").Text;
             Get<TextBlock>("SessionHint").Text = activeDevice.Model + " · " + (SelectedFrameRate() == 0 ? limit : "Лимит " + limit)
@@ -816,6 +843,45 @@ namespace Morror
         Task Start() { return StartMirror(false); }
         Task Resume() { return StartMirror(true); }
 
+        void AttachMirrorToolbar(IntPtr handle, Device device)
+        {
+            var pin = Get<CheckBox>("AlwaysOnTop");
+            try
+            {
+                mirrorToolbar = new MirrorToolbar(window, handle, pinned => pin.IsChecked = pinned,
+                    Stop, token => CaptureMirrorScreen(device, token), AddLog);
+                mirrorToolbar.SetPinned(pin.IsChecked == true);
+            }
+            catch (Exception error)
+            {
+                CloseMirrorToolbar();
+                AddLog("Не удалось открыть панель трансляции. " + error.Message);
+            }
+        }
+
+        void CloseMirrorToolbar()
+        {
+            if (mirrorToolbar == null) return;
+            mirrorToolbar.Dispose();
+            mirrorToolbar = null;
+        }
+
+        async Task<string> CaptureMirrorScreen(Device device, CancellationToken token)
+        {
+            var transfer = new FileTransfer(Adb, device.Serial);
+            string path = await transfer.Screenshot(FileTransfer.ReceiveFolder(), token);
+            try
+            {
+                await ClipboardTransfer.CopyFile(path, token);
+                return "Снимок сохранён и скопирован в буфер.";
+            }
+            catch (IOException error)
+            {
+                AddLog(error.Message);
+                return "Снимок сохранён. Буфер Windows занят.";
+            }
+        }
+
         async Task StartMirror(bool resume)
         {
             if (closing || Running || starting || networkBusy || refreshing) return;
@@ -855,7 +921,8 @@ namespace Morror
                 }
                 if (closing) return;
                 int fps = SelectedFrameRate();
-                var args = Protocol.MirrorArguments(device.Serial, Get<ComboBox>("Quality").SelectedIndex, fps, audio, Get<CheckBox>("Control").IsChecked == true, Get<CheckBox>("AlwaysOnTop").IsChecked == true, Get<CheckBox>("ClipboardSync").IsChecked == true, Get<ComboBox>("KeyboardMode").SelectedIndex == 0, Get<CheckBox>("ScreenOff").IsChecked == true, device.Wireless);
+                int quality = Get<ComboBox>("Quality").SelectedIndex;
+                var args = Protocol.MirrorArguments(device.Serial, quality, fps, audio, Get<CheckBox>("Control").IsChecked == true, Get<CheckBox>("AlwaysOnTop").IsChecked == true, Get<CheckBox>("ClipboardSync").IsChecked == true, Get<ComboBox>("KeyboardMode").SelectedIndex == 0, Get<CheckBox>("ScreenOff").IsChecked == true, device.Wireless);
                 launched = new Process { StartInfo = Commands.StartInfo(Path.Combine(runtime, "scrcpy.exe"), args), EnableRaisingEvents = true };
                 launched.StartInfo.EnvironmentVariables["ADB"] = Adb;
                 launched.StartInfo.EnvironmentVariables["SCRCPY_ICON_DIR"] = runtime;
@@ -871,9 +938,11 @@ namespace Morror
                 {
                     if (closing || mirror != launched || launched.HasExited) return;
                     launched.Refresh();
-                    if (launched.MainWindowHandle != IntPtr.Zero)
+                    IntPtr handle = launched.MainWindowHandle;
+                    if (handle != IntPtr.Zero)
                     {
                         ApplyPin();
+                        AttachMirrorToolbar(handle, device);
                         streamStarted = true;
                         interruptedDevice = null;
                         interruptedSettings = null;
@@ -931,6 +1000,7 @@ namespace Morror
             if (mirror != owned) return;
             int exitCode = owned.ExitCode;
             var device = activeDevice;
+            CloseMirrorToolbar();
             mirror = null; activeDevice = null; owned.Dispose();
             if (closing) return;
             actualFps = null;
@@ -955,6 +1025,7 @@ namespace Morror
         void Stop()
         {
             stopRequested = true;
+            if (closing) CloseMirrorToolbar();
             if (mirror == null) return;
             try { if (!mirror.HasExited && !mirror.CloseMainWindow()) mirror.Kill(); }
             catch (InvalidOperationException) { }

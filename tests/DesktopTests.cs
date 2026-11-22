@@ -24,6 +24,14 @@ class DesktopTests
     static extern int GetWindowLong(IntPtr window, int index);
     [DllImport("user32.dll")]
     static extern int GetWindowRgn(IntPtr window, IntPtr region);
+    [DllImport("user32.dll")]
+    static extern IntPtr GetWindow(IntPtr window, uint relationship);
+    [DllImport("user32.dll")]
+    static extern bool GetWindowRect(IntPtr window, out RegionBounds bounds);
+    [DllImport("user32.dll")]
+    static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    static extern IntPtr SendMessageW(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("gdi32.dll")]
     static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
     [DllImport("gdi32.dll")]
@@ -56,6 +64,30 @@ class DesktopTests
         using (var stream = File.Create(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, filename))) encoder.Save(stream);
     }
     static void Check(bool condition, string message) { if (!condition) throw new Exception(message); count++; Console.WriteLine("PASS " + message); }
+
+    static async Task CheckToolbarFollowsMirror(IntPtr toolbar, IntPtr mirror)
+    {
+        RegionBounds originalMirror;
+        Check(GetWindowRect(mirror, out originalMirror), "The mirror window has native bounds");
+        RegionBounds originalToolbar = new RegionBounds();
+        await Until(() => GetWindowRect(toolbar, out originalToolbar) &&
+            Math.Abs(originalToolbar.Top - originalMirror.Top) < 100);
+        const int moveOnly = 0x0001 | 0x0004 | 0x0010;
+        try
+        {
+            Check(SetWindowPos(mirror, IntPtr.Zero, originalMirror.Left + 37, originalMirror.Top + 23, 0, 0, moveOnly),
+                "The fixture can move its native window");
+            RegionBounds updatedToolbar;
+            await Until(() => GetWindowRect(toolbar, out updatedToolbar)
+                && updatedToolbar.Left == originalToolbar.Left + 37
+                && updatedToolbar.Top == originalToolbar.Top + 23);
+            Check(true, "The toolbar follows the mirror position across processes");
+        }
+        finally
+        {
+            SetWindowPos(mirror, IntPtr.Zero, originalMirror.Left, originalMirror.Top, 0, 0, moveOnly);
+        }
+    }
     static async Task Until(Func<bool> predicate)
     {
         var timeout = Stopwatch.StartNew();
@@ -135,6 +167,10 @@ class DesktopTests
                 Check(((StackPanel)window.FindName("DashboardPage")).IsVisible && !((StackPanel)window.FindName("SettingsPage")).IsVisible, "Home navigation restores the connection dashboard");
                 var presets = (ComboBox)window.FindName("StreamPreset"); presets.SelectedIndex = 1;
                 Check(((ComboBox)window.FindName("Quality")).SelectedIndex == 0 && ((ComboBox)window.FindName("FrameRate")).SelectedIndex == 1, "Low heat preset actually selects 720 px and 30 FPS");
+                presets.SelectedValue = "4";
+                Check(((ComboBox)window.FindName("Quality")).SelectedIndex == 0 &&
+                    ((ComboBox)window.FindName("FrameRate")).SelectedIndex == 2,
+                    "Smooth mode reduces the capture size without reducing the 60 FPS cap");
                 presets.SelectedIndex = 0;
                 ((System.Windows.Controls.Button)window.FindName("WifiButton")).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
                 await Until(() => !Field<bool>(controller, "refreshing"));
@@ -286,8 +322,28 @@ class DesktopTests
                 Check(((TextBlock)window.FindName("SessionHint")).Text.Contains("Фактически 43 FPS"), "Android session shows the engine's measured FPS beside the limit");
                 Check(mirror != null && !mirror.HasExited && !window.IsVisible, "Settings hide only after the mirror window opens; the stream stays alive");
                 Check((GetWindowLong(mirror.MainWindowHandle, -20) & 8) != 0, "Mirror window is actually pinned at startup");
-                ((CheckBox)window.FindName("AlwaysOnTop")).IsChecked = false;
-                Check((GetWindowLong(mirror.MainWindowHandle, -20) & 8) == 0 && !mirror.HasExited, "Unpinning takes effect without restarting the stream");
+                var toolbar = Field<MirrorToolbar>(controller, "mirrorToolbar");
+                IntPtr toolbarHandle = toolbar == null ? IntPtr.Zero : Field<IntPtr>(toolbar, "handle");
+                Check(toolbar != null && GetWindow(toolbarHandle, 4) == mirror.MainWindowHandle,
+                    "The toolbar belongs to the mirror HWND");
+                await CheckToolbarFollowsMirror(toolbarHandle, mirror.MainWindowHandle);
+                var toolbarWindow = Field<Window>(toolbar, "window");
+                int toolbarStyle = GetWindowLong(toolbarHandle, -20);
+                Check((toolbarStyle & 0x08000000) != 0 && (toolbarStyle & 0x00080020) == 0,
+                    "The toolbar is an opaque input window that does not activate");
+                Check(SendMessageW(toolbarHandle, 0x0021, IntPtr.Zero, IntPtr.Zero).ToInt64() == 3
+                    && SendMessageW(toolbarHandle, 0x024B, IntPtr.Zero, IntPtr.Zero).ToInt64() == 3,
+                    "Mouse and pointer activation leave focus with the stream and keep the input");
+                var screenshotButton = (System.Windows.Controls.Button)toolbarWindow.FindName("MirrorScreenshot");
+                Check(screenshotButton.ClickMode == ClickMode.Press && !screenshotButton.Focusable,
+                    "Toolbar actions do not require focus or mouse capture through button release");
+                Check(((TextBlock)toolbarWindow.FindName("MirrorFps")).Text == "43 FPS",
+                    "The toolbar shows the measured FPS");
+                ((System.Windows.Controls.Button)toolbarWindow.FindName("MirrorPin"))
+                    .RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                Check((GetWindowLong(mirror.MainWindowHandle, -20) & 8) == 0 && !mirror.HasExited
+                    && ((CheckBox)window.FindName("AlwaysOnTop")).IsChecked == false,
+                    "Unpinning from the toolbar updates settings without restarting the stream");
                 using (var signal = EventWaitHandle.OpenExisting(Field<string>(controller, "restoreSignalName"))) signal.Set();
                 await Until(() => window.IsVisible);
                 Check(!mirror.HasExited, "Reopen signal restores hidden settings without interrupting the stream");
@@ -305,8 +361,11 @@ class DesktopTests
                 await (Task)Invoke(controller, "Start");
                 mirror = Field<Process>(controller, "mirror");
                 Check(mirror != null && window.IsVisible, "Disabling auto-hide leaves settings visible after startup");
-                mirror.CloseMainWindow();
+                var secondToolbar = Field<MirrorToolbar>(controller, "mirrorToolbar");
+                ((System.Windows.Controls.Button)Field<Window>(secondToolbar, "window").FindName("MirrorStop"))
+                    .RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
                 await Until(() => Field<Process>(controller, "mirror") == null);
+                Check(Field<MirrorToolbar>(controller, "mirrorToolbar") == null, "The toolbar stops the mirror and closes with it");
                 ((CheckBox)window.FindName("AutoTray")).IsChecked = true;
                 await (Task)Invoke(controller, "Start");
                 mirror = Field<Process>(controller, "mirror");
@@ -422,7 +481,7 @@ class DesktopTests
             {
                 Check(((ComboBox)restored.FindName("Quality")).SelectedIndex == 2 &&
                     ((ComboBox)restored.FindName("FrameRate")).SelectedIndex == 8 &&
-                    ((ComboBox)restored.FindName("StreamPreset")).SelectedIndex == 3 &&
+                    (string)((ComboBox)restored.FindName("StreamPreset")).SelectedValue == "3" &&
                     ((ComboBox)restored.FindName("KeyboardMode")).SelectedIndex == 1,
                     "Next launch restores custom resolution, frame rate, preset and keyboard mode");
                 Check(((CheckBox)restored.FindName("Control")).IsChecked == false &&
@@ -431,8 +490,20 @@ class DesktopTests
                     ((CheckBox)restored.FindName("Audio")).IsChecked == false &&
                     !((CheckBox)restored.FindName("ClipboardSync")).IsEnabled,
                     "Next launch restores switches and updates dependent controls before connecting a phone");
+                ((ComboBox)restored.FindName("StreamPreset")).SelectedValue = "4";
+                var savedSmooth = StreamSettings.Load(path);
+                Check((int)savedSmooth["StreamPreset"] == 4 && (int)savedSmooth["Quality"] == 0
+                    && (int)savedSmooth["FrameRate"] == 2, "Smooth mode saves its preset and capture settings together");
             }
             finally { restored.Close(); }
+
+            var restoredSmooth = OpenSettingsFixture(path);
+            try
+            {
+                Check((string)((ComboBox)restoredSmooth.FindName("StreamPreset")).SelectedValue == "4",
+                    "The next launch restores the smooth preset");
+            }
+            finally { restoredSmooth.Close(); }
 
             File.WriteAllText(path, "{\"Quality\":999,\"AutoTray\":false}");
             var partial = OpenSettingsFixture(path);

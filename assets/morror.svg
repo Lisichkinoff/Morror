@@ -1,9 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
   <defs>
-    <linearGradient id="bg" x2="0.47" y2="1"><stop stop-color="#483976"/><stop offset="1" stop-color="#22232d"/></linearGradient>
-    <linearGradient id="lavender" x2="0.47" y2="1"><stop stop-color="#dcd0ff"/><stop offset="1" stop-color="#9980f2"/></linearGradient>
+    <linearGradient id="bg" gradientUnits="userSpaceOnUse" x1="12" y1="15" x2="244" y2="245">
+      <stop stop-color="#493b70"/>
+      <stop offset="1" stop-color="#212238"/>
+    </linearGradient>
+    <path id="monogram-panel"
+          d="M57 72H71C74 72 77 73 80 76L124 123V165L82 123V180C82 184 80 187 75 187H57C52 187 50 184 50 180V79C50 75 53 72 57 72Z"/>
   </defs>
-  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)" stroke="#705d9f" stroke-width="4"/>
-  <path d="M128 43 213 128 128 213 43 128Z" fill="none" stroke="url(#lavender)" stroke-width="16" stroke-linejoin="round"/>
-  <path d="M94 151V106L128 135 162 106V151" fill="none" stroke="#f4edff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="12" y="15" width="232" height="230" rx="35" fill="url(#bg)" stroke="#6b5e91" stroke-width="1.6"/>
+  <use href="#monogram-panel" fill="#a395fa"/>
+  <use href="#monogram-panel" fill="#cdbefb" transform="matrix(-1 0 0 1 256 0)"/>
 </svg>

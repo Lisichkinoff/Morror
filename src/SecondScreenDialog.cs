@@ -55,7 +55,8 @@ namespace Morror
             Get<Button>("MonitorStart").Click+=async(s,e)=>await Start();
             Get<Button>("MonitorResume").Click+=async(s,e)=>await StartMonitor(true);
             Get<Button>("MonitorStop").Click+=async(s,e)=>await Stop();
-            Get<Button>("MonitorClose").Click+=(s,e)=>window.Close();Get<Button>("ScreenTitleClose").Click+=(s,e)=>window.Close();
+            WindowFrame.Bind(window, Get<Border>("WindowFrame"), Get<Button>("ScreenTitleClose"));
+            Get<Button>("MonitorClose").Click+=(s,e)=>window.Close();
             Get<Button>("MonitorRefresh").Click+=async(s,e)=>await Refresh();
             Get<Button>("MonitorQr").Click+=async(s,e)=>await Pair();
             Get<Expander>("MonitorApk").Expanded += async (s,e) => await ShowApkNetworks();

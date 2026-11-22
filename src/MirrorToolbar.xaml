@@ -1,0 +1,30 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="Управление трансляцией Morror" Width="198" SizeToContent="Height"
+        WindowStyle="None" ResizeMode="NoResize"
+        Background="#252632" ShowInTaskbar="False" ShowActivated="False"
+        UseLayoutRounding="True" FontFamily="Segoe UI" Foreground="#F2EFFA">
+  <shell:WindowChrome.WindowChrome>
+    <shell:WindowChrome CaptionHeight="0" ResizeBorderThickness="0" GlassFrameThickness="0"
+                        CornerRadius="24" UseAeroCaptionButtons="False"/>
+  </shell:WindowChrome.WindowChrome>
+  <Border Background="#252632" BorderBrush="#535166" BorderThickness="1" CornerRadius="12" Padding="4">
+    <StackPanel>
+      <DockPanel LastChildFill="True">
+        <!-- Invoke on press because the video window retains keyboard focus and mouse capture is optional. -->
+        <Button x:Name="MirrorPin" Style="{DynamicResource CaptionButton}" Focusable="False" ClickMode="Press" Content="&#xE718;"/>
+        <Button x:Name="MirrorFullscreen" Style="{DynamicResource CaptionButton}" Focusable="False" ClickMode="Press" Content="&#xE740;"
+                ToolTip="Полный экран или обычное окно · Alt+F" AutomationProperties.Name="Переключить полный экран"/>
+        <Button x:Name="MirrorScreenshot" Style="{DynamicResource CaptionButton}" Focusable="False" ClickMode="Press" Content="&#xE722;"
+                ToolTip="Снимок экрана в буфер Windows" AutomationProperties.Name="Снимок экрана в буфер Windows"/>
+        <Button x:Name="MirrorStop" Style="{DynamicResource CaptionButton}" Focusable="False" ClickMode="Press" Content="&#xE71A;"
+                ToolTip="Остановить трансляцию" AutomationProperties.Name="Остановить трансляцию"/>
+        <TextBlock x:Name="MirrorFps" Text="— FPS" FontSize="11" Foreground="{DynamicResource Muted}"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" Margin="2,0,0,0"/>
+      </DockPanel>
+      <TextBlock x:Name="MirrorFeedback" Foreground="#D0BFFF" FontSize="11" TextWrapping="Wrap"
+                 Visibility="Collapsed" Margin="6,3,6,4" AutomationProperties.LiveSetting="Polite"/>
+    </StackPanel>
+  </Border>
+</Window>

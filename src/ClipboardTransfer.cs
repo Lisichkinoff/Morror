@@ -2,6 +2,7 @@ using System;
 using System.Collections.Specialized;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media.Imaging;
@@ -73,18 +74,22 @@ namespace Morror
             return data;
         }
 
-        public static async Task<bool> CopyFile(string path)
+        public static Task<bool> CopyFile(string path) { return CopyFile(path, CancellationToken.None); }
+
+        internal static async Task<bool> CopyFile(string path, CancellationToken cancellation)
         {
+            cancellation.ThrowIfCancellationRequested();
             bool image;
             var data = FileData(path, out image);
             for (int attempt = 0; ; attempt++)
             {
+                cancellation.ThrowIfCancellationRequested();
                 try { Clipboard.SetDataObject(data, true); return image; }
                 catch (ExternalException)
                 {
                     if (attempt >= 3) throw new IOException("Буфер Windows занят другим приложением. Повторите копирование.");
                 }
-                await Task.Delay(100);
+                await Task.Delay(100, cancellation);
             }
         }
     }
